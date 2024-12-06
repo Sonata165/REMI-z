@@ -4,7 +4,7 @@ dirof = os.path.dirname
 sys.path.insert(0, dirof(dirof(__file__)))
 
 from multitrack.core import MultiTrack
-from multitrack.utils_midi import RemiTokenizer
+from multitrack.legacy_tokenizer import RemiTokenizer
 
 def main():
     # Generate REMI-z for a MIDI file

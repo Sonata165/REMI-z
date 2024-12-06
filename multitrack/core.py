@@ -1,10 +1,14 @@
 import os
-from typing import List, Dict
-from . import midiprocessor as mp
-from .midi_data_extractor.midi_processing import get_midi_pos_info, convert_pos_info_to_tokens
-from .midi_data_extractor.data_extractor import get_bar_positions, get_bars_insts, ChordDetector
-from .midi_data_extractor.utils.pos_process import fill_pos_ts_and_tempo_
+import sys
+dirof = os.path.dirname
+sys.path.insert(0, dirof(__file__))
+
 import pretty_midi
+from typing import List, Dict
+from midi_encoder import (
+    MidiEncoder, load_midi, fill_pos_ts_and_tempo_, 
+    get_bar_positions, get_bars_insts, get_midi_pos_info
+)
 
 
 class Note:
@@ -171,9 +175,9 @@ class MultiTrack:
         assert os.path.exists(midi_fp), "midi_fp does not exist"
 
         encoding_method = "REMIGEN2"
-        midi_encoder = mp.MidiEncoder(encoding_method)
+        midi_encoder = MidiEncoder(encoding_method)
 
-        midi_obj = mp.midi_utils.load_midi(midi_fp)
+        midi_obj = load_midi(midi_fp)
         pos_info = get_midi_pos_info(midi_encoder, midi_path=None, midi_obj=midi_obj, remove_empty_bars=False)
         # bar: every pos
         # ts: only at pos where it changes, otherwise None

@@ -1,17 +1,14 @@
 import os
 import sys
+dirof = os.path.dirname
+sys.path.insert(0, dirof(__file__))
 
-from . import midiprocessor as mp
-# import pretty_midi
-
-# from utils_chord.chord_map import recognize_chord_from_midi, quantize_chord
-from .midi_data_extractor.utils.pos_process import fill_pos_ts_and_tempo_
-from .midi_data_extractor.midi_processing import get_midi_pos_info, convert_pos_info_to_tokens
-from .midi_data_extractor.data_extractor import get_bar_positions, get_bars_insts, ChordDetector
-# from utils_texture.texture_tools import get_time_function_from_remi_one_bar
-from . import remi_utils
-
-from .midiprocessor import MidiDecoder
+from legacy import remi_utils
+from legacy import midiprocessor as mp
+from legacy.midi_data_extractor.utils.pos_process import fill_pos_ts_and_tempo_
+from legacy.midi_data_extractor.midi_processing import get_midi_pos_info, convert_pos_info_to_tokens
+from legacy.midi_data_extractor.data_extractor import get_bar_positions, get_bars_insts, ChordDetector
+from legacy.midiprocessor import MidiDecoder
 
 ls = os.listdir
 jpath = os.path.join
