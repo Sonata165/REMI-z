@@ -1,4 +1,4 @@
-# REMI-z tokenizer and MultiTrack data structure for multitrack music
+# *REMI-z* tokenizer and *MultiTrack* music data structure
 
 This is the official implementation of the REMI-z tokenizer in the paper [*Unlocking Potential in Pre-Trained Music Language Models for Versatile Multi-Track Music Arrangement*](https://arxiv.org/abs/2408.15176).
 
