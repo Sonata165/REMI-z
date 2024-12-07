@@ -1,8 +1,16 @@
 from setuptools import setup, find_packages
+import os
+
+
+version = '0.5.6'
+
+readme_path = 'Readme.md'
+long_description = open(readme_path, encoding='utf-8').read() if os.path.exists(readme_path) else ""
+
 
 setup(
     name='REMI-z',  # 项目名称
-    version='0.5.3',  # 版本号
+    version=version,  # 版本号
     author='Longshen Ou',  # 作者姓名
     author_email='oulongshen@gmail.com',  # 邮箱地址
     description='Manipulate your MIDI file in bar level, and converting between MIDI and REMI-z format.',
