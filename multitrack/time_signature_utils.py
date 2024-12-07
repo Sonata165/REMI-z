@@ -3,7 +3,7 @@ import os
 import sys
 sys.path.append('..')
 import yaml
-from src_hf.utils import *
+# from src_hf.utils import *
 
 def main():
     # tide_up_time_signature()
@@ -23,7 +23,8 @@ def test_ts_tempo_converter():
 
 
 def convert_time_signature_to_ts_token(numerator, denominator):
-    data = read_yaml('/home/longshen/work/MuseCoco/musecoco/midi_utils/ts_dict.yaml')
+    ts_fp = os.path.join(os.path.dirname(__file__), 'dict_time_signature.yaml')
+    data = read_yaml(ts_fp)
     valid = False
     for k, v in data.items():
         if v == '({}, {})'.format(numerator, denominator):
@@ -31,6 +32,7 @@ def convert_time_signature_to_ts_token(numerator, denominator):
             return k
     if not valid:
         raise ValueError('Invalid time signature: {}/{}'.format(numerator, denominator))
+    
 
 def convert_tempo_to_tempo_token(bpm):
     data = read_yaml('/home/longshen/work/MuseCoco/musecoco/midi_utils/tempo_dict.yaml')

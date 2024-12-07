@@ -1,6 +1,5 @@
 # Author: Botao Yu
 
-
 # === Abbreviation ===
 BAR_ABBR = 'b'
 POS_ABBR = 'o'

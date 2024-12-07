@@ -3,13 +3,11 @@ import sys
 dirof = os.path.dirname
 sys.path.insert(0, dirof(__file__))
 
+import yaml
 import pretty_midi
 from typing import List, Dict
-from midi_encoder import (
-    MidiEncoder, load_midi, fill_pos_ts_and_tempo_, 
-    get_bar_positions, get_bars_insts, get_midi_pos_info
-)
-
+from midi_encoding import MidiEncoder, load_midi, fill_pos_ts_and_tempo_, convert_tempo_to_id
+from time_signature_utils import convert_time_signature_to_ts_token
 
 class Note:
     def __init__(self, onset:int, duration:int, pitch:int, velocity:int, is_drum=False):
@@ -111,10 +109,13 @@ class Track:
 
 
 class Bar:
-    def __init__(self, id, notes_of_insts:List[Note]):
+    def __init__(self, id, notes_of_insts:List[Note], time_signature, tempo):
         '''
         NOTE: The instrument with higher average pitch will be placed at the front.
         '''
+        # Round tempo to 0.01
+        tempo = round(tempo, 2)
+
         self.bar_id = id
         track_list = []
         self.tracks = {}
@@ -125,6 +126,9 @@ class Bar:
         for track in track_list:
             inst_id = track.inst_id
             self.tracks[inst_id] = track
+
+        self.time_signature = time_signature
+        self.tempo = tempo
 
     def __len__(self):
         return len(self.tracks)
@@ -137,8 +141,20 @@ class Bar:
     
 
 class MultiTrack:
-    def __init__(self, bars:List[Bar]):
+    def __init__(self, bars:List[Bar], pitch_shift=None, is_major=None):
+        '''
+        Args:
+            bars: List of Bar objects
+            pitch_shift: The pitch shift value. None means not detected.
+            is_major: The major/minor key information. None means not detected.
+        '''
         self.bars = bars 
+        self.pitch_shift = pitch_shift
+        self.is_major = is_major
+
+        # Load the time signature dictionary
+        ts_fp = os.path.join(os.path.dirname(__file__), 'dict_time_signature.yaml')
+        self.ts_dict = read_yaml(ts_fp)
 
     def __len__(self):
         return len(self.bars)
@@ -174,40 +190,43 @@ class MultiTrack:
         assert isinstance(midi_fp, str), "midi_fp must be a string"
         assert os.path.exists(midi_fp), "midi_fp does not exist"
 
-        encoding_method = "REMIGEN2"
-        midi_encoder = MidiEncoder(encoding_method)
-
+        midi_encoder = MidiEncoder()
         midi_obj = load_midi(midi_fp)
-        pos_info = get_midi_pos_info(midi_encoder, midi_path=None, midi_obj=midi_obj, remove_empty_bars=False)
+
+        # Obtain information for each position (a dense representation)
+        pos_info = midi_encoder.collect_pos_info(
+            midi_obj, 
+            trunc_pos=None, 
+            tracks=None, 
+            remove_same_notes=False, 
+            end_offset=0
+        )
         # bar: every pos
         # ts: only at pos where it changes, otherwise None
         # in-bar position
         # tempo: only at pos where it changes, otherwise None
         # insts_notes: only at pos where the note starts, otherwise None
 
-        # Longshen: don't remove empty bars to facilitate
-
+        # Fill time signature and tempo info to the first pos of each bar
         pos_info = fill_pos_ts_and_tempo_(pos_info)
 
-        normalize_pitch = True
-
-        # Obtain pitch shift and major/minor info
-        # Deep copy pos_info
-        pos_info_copy = pos_info.copy()
+        # Determine pitch normalization and major/minor info
         _, is_major, pitch_shift = midi_encoder.normalize_pitch(pos_info) # Can make error some times. Not sure about direction of pitch shift yet.
-
-        # Get bar token index, and instruments inside each bar
-        bars_positions = get_bar_positions(pos_info)
-        bars_instruments = get_bars_insts(pos_info, bars_positions)
-        num_bars = len(bars_positions)
-        assert num_bars == len(bars_instruments)
+        # If apply this pitch shift to the original MIDI, the key will be C major or A minor
 
         # Generate bar sequences and note sequences
         bar_seqs = []
-        seen_bars = set()
         bar_id_prev_pos = -1
+        cur_ts = None
+        cur_tempo = None
         for i in range(len(pos_info)):
             bar_id, ts, pos, tempo, insts_notes = pos_info[i]
+
+            # Update time signature and tempo
+            if ts is not None:
+                cur_ts = ts
+            if tempo is not None:
+                cur_tempo = tempo
             
             # Determine if this is a new bar
             if bar_id > bar_id_prev_pos:
@@ -234,20 +253,39 @@ class MultiTrack:
             
             # Add the bar info
             if last_pos_of_bar:
-                bar_instance = Bar(id=bar_id, notes_of_insts=notes_of_instruments)
+                bar_instance = Bar(
+                    id=bar_id, 
+                    notes_of_insts=notes_of_instruments,
+                    time_signature=cur_ts,
+                    tempo=cur_tempo,
+                )
                 bar_seqs.append(bar_instance)
                 
             bar_id_prev_pos = bar_id
 
-        return cls(bars=bar_seqs)
+        return cls(bars=bar_seqs, pitch_shift=pitch_shift, is_major=is_major)
     
-    def to_remiz_seq(self):
+    def to_remiz_seq(self, with_ts=False, with_tempo=False, key_norm=False):
         '''
         Convert the MultiTrack object to a REMI-z sequence of tokens.
         '''
         ret = []
         for bar in self.bars:
             bar_seq = []
+
+            # Add time signature
+            if with_ts:
+                # time_sig = bar.time_signature.strip()[1:-1]
+                num, den = bar.time_signature
+                ts_token = self.convert_time_signature_to_ts_token(int(num), int(den))
+                bar_seq.append(ts_token)
+
+            if with_tempo:
+                tempo_id = convert_tempo_to_id(bar.tempo)
+                tempo_tok = f't-{tempo_id}'
+                bar_seq.append(tempo_tok)
+                
+
             for inst_id, track in bar.tracks.items():
                 track_seq = [f'i-{inst_id}']
                 prev_pos = -1
@@ -255,8 +293,12 @@ class MultiTrack:
                     if note.onset > prev_pos:
                         track_seq.append(f'o-{note.onset}')
                         prev_pos = note.onset
+                    if key_norm:
+                        pitch_id = note.pitch + self.pitch_shift
+                    else:
+                        pitch_id = note.pitch
                     track_seq.extend([
-                        f'p-{note.pitch}',
+                        f'p-{pitch_id}',
                         f'd-{note.duration}',
                     ])
                 bar_seq.extend(track_seq)
@@ -264,11 +306,11 @@ class MultiTrack:
             ret.extend(bar_seq) 
         return ret
     
-    def to_remiz_str(self):
+    def to_remiz_str(self, with_ts=False, with_tempo=False, key_norm=False):
         '''
         Convert the MultiTrack object to a REMI-z string.
         '''
-        ret = self.to_remiz_seq()
+        ret = self.to_remiz_seq(with_ts=with_ts, with_tempo=with_tempo, key_norm=key_norm)
         return ' '.join(ret)
     
     def to_midi(self, midi_fp: str):
@@ -329,3 +371,18 @@ class MultiTrack:
         midi.write(midi_fp)
 
         print(f"MIDI file successfully written to {midi_fp}")
+
+    def convert_time_signature_to_ts_token(self, numerator, denominator):
+        ts_dict = self.ts_dict
+        valid = False
+        for k, v in ts_dict.items():
+            if v == '({}, {})'.format(numerator, denominator):
+                valid = True
+                return k
+        if not valid:
+            raise ValueError('Invalid time signature: {}/{}'.format(numerator, denominator))
+
+def read_yaml(fp):
+    with open(fp, 'r') as f:
+        data = yaml.safe_load(f)
+    return data

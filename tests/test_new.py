@@ -9,13 +9,19 @@ from multitrack.legacy_tokenizer import RemiTokenizer
 def main():
     # Generate REMI-z for a MIDI file
     multitrack = MultiTrack.from_midi('/Users/sonata/Code/REMI-z/_misc/butterfly_ours.mid')
-    remiz_seq = multitrack.to_remiz_seq()
+    remiz_seq = multitrack.to_remiz_seq(with_ts=True, with_tempo=True, key_norm=True)
     multitrack.to_midi('/Users/sonata/Code/REMI-z/_misc/butterfly_ours_dec.mid')
     multitrack[1:4]
 
-    # Generate by old tokenizer (deprecated)
+    # Generate by the legacy tokenizer (deprecated)
     tokenizer = RemiTokenizer()
-    remi_old = tokenizer.midi_to_remi('/Users/sonata/Code/REMI-z/_misc/butterfly_ours.mid', normalize_pitch=False, reorder_by_inst=True)
+    remi_old = tokenizer.midi_to_remi(
+        '/Users/sonata/Code/REMI-z/_misc/butterfly_ours.mid', 
+        normalize_pitch=False, 
+        reorder_by_inst=False,
+        include_ts=True,
+        include_tempo=True,
+    )
     tokenizer.remi_to_midi(remi_old, '/Users/sonata/Code/REMI-z/_misc/butterfly_ours_old.mid')
 
     same_cnt = 0

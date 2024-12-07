@@ -1,4 +1,12 @@
-# Author: Botao Yu
+# 
+'''
+Author: Longshen Ou
+
+Fixed: 
+- calculation based on weighted histogram, where 1, 3, 5 are 2x important.
+- 0 weight for off-scale notes, instead of -1
+'''
+
 import numpy as np
 
 
@@ -38,57 +46,51 @@ def get_pitch_class_histogram(notes, normalize=True, use_duration=True, use_velo
 
 def get_pitch_shift(pos_info, key_profile, normalize=True, use_duration=True, use_velocity=True,
                     ensure_valid_range=True):
+    '''
+    Return:
+    - Pitch shift value (If add this value to the pitch, the key will be C major or A minor)
+    - Major or minor
+    - Min pitch
+    - Max pitch
+    '''
     notes, min_pitch, max_pitch = get_notes_from_pos_info(pos_info)
     assert min_pitch >= 0 and max_pitch < 128
     if len(notes) == 0:
         return 0, None, None, None
     histogram = None
     key_candidate = None
-    key_temp = None
     major_index = None
     minor_index = None
-    duration_velocity = ((use_duration, use_velocity),
-                         (use_duration, not use_velocity),
-                         (not use_duration, use_velocity),
-                         (not use_duration, not use_velocity))
-    for choice_idx, (use_duration, use_velocity) in enumerate(duration_velocity):
-        try:
-            histogram = get_pitch_class_histogram(notes, normalize=normalize,
-                                                  use_duration=use_duration, use_velocity=use_velocity)
-            key_candidate = np.dot(key_profile, histogram)
-            key_temp = np.where(key_candidate == max(key_candidate))
-            major_index = key_temp[0][0]
-            minor_index = key_temp[0][1]
-        except IndexError:
-            if choice_idx == len(duration_velocity) - 1:
-                print(len(notes))
-                print(notes)
-                print(histogram)
-                print(key_candidate)
-                print(key_temp)
-                raise
-            else:
-                print('Try duration (%s) / velocity (%s) failed. Try another (%s %s).' % (
-                    use_duration, use_velocity,
-                    duration_velocity[choice_idx + 1][0], duration_velocity[choice_idx + 1][1]
-                ))
-                continue
 
-    major_count = histogram[major_index]
-    minor_count = histogram[minor_index % 12]
-    if major_count < minor_count:
+    use_duration = True
+    use_velocity = True
+
+    histogram = get_pitch_class_histogram(
+        notes, 
+        normalize=normalize,
+        use_duration=use_duration, 
+        use_velocity=use_velocity,
+    )
+
+    key_candidate = np.dot(key_profile, histogram) # [24,]
+    major_key_candidate = key_candidate[:12]
+    minor_key_candidate = key_candidate[12:]
+
+    major_index = np.argmax(major_key_candidate)
+    minor_index = np.argmax(minor_key_candidate)
+
+    major_score = major_key_candidate[major_index]
+    minor_score = minor_key_candidate[minor_index]
+    if major_score < minor_score:
         key_number = minor_index  # 小调
         is_major = False
+        real_key = key_number
+        pitch_shift = -3 - real_key  # 小调
     else:
         key_number = major_index  # 大调
         is_major = True
-    real_key = key_number
-    # transpose to C major or A minor
-    if real_key <= 11:
-        trans = 0 - real_key  # 大调
-    else:  # > 12
-        trans = 21 - real_key  # 小调
-    pitch_shift = trans
+        real_key = key_number
+        pitch_shift = 0 - real_key  
 
     if ensure_valid_range:
         while pitch_shift + min_pitch < 0:
