@@ -2,7 +2,7 @@ import os
 import sys
 dirof = os.path.dirname
 sys.path.insert(0, dirof(__file__))
-
+import miditoolkit
 import yaml
 import pretty_midi
 from typing import List, Dict
@@ -40,10 +40,10 @@ class Note:
         assert 0 <= onset <= 127, "onset must be in the range of [0, 127]"
         assert 0 <= pitch <= 255, "pitch must be in the range of [0, 255]"
         assert 0 <= velocity <= 127, "velocity must be in the range of [0, 127]"
-        if is_drum:
-            assert 128 <= pitch <= 255, "Drum pitch must be in the range of [128, 255]"
-        else:
-            assert 0 <= pitch <= 127, "MIDI pitch must be in the range of [0, 127]"
+        # if is_drum:
+        #     assert 128 <= pitch <= 255, "Drum pitch must be in the range of [128, 255]"
+        # else:
+        #     assert 0 <= pitch <= 127, "MIDI pitch must be in the range of [0, 127]"
 
         # Round the values
         duration = min(max(1, duration), 127) # duration must be in the range of [1, 127]
@@ -89,8 +89,11 @@ class Track:
         self.notes.sort()
 
         # Calculate the average pitch
-        pitches = [note.pitch for note in self.notes]
-        self.avg_pitch = sum(pitches) / len(pitches)
+        if self.is_drum:
+            self.avg_pitch = -1
+        else:
+            pitches = [note.pitch for note in self.notes]
+            self.avg_pitch = sum(pitches) / len(pitches)
 
     def __str__(self) -> str:
         return f'Inst {self.inst_id}: {len(self.notes)} notes'
@@ -172,6 +175,19 @@ class MultiTrack:
     def __repr__(self) -> str:
         return self.__str__()
     
+    def normalize_pitch(self):
+        '''
+        Normalize the pitch of all notes in the MultiTrack object.
+        '''
+        for bar in self.bars:
+            for inst_id, track in bar.tracks.items():
+                if track.is_drum:
+                    continue
+                else:
+                    for note in track.notes:
+                        note.pitch += self.pitch_shift
+        return self
+
     def get_unique_insts(self):
         '''
         Get all unique instruments in the MultiTrack object.
@@ -313,7 +329,228 @@ class MultiTrack:
         ret = self.to_remiz_seq(with_ts=with_ts, with_tempo=with_tempo, key_norm=key_norm)
         return ' '.join(ret)
     
+
+
     def to_midi(self, midi_fp: str):
+        """
+        Create a MIDI file from the MultiTrack object using miditoolkit.
+        """
+        assert isinstance(midi_fp, str), "midi_fp must be a string"
+        
+        # 创建一个空的 MidiFile 对象
+        # 默认 ticks_per_beat 是480，你可以根据需要修改
+        midi_obj = miditoolkit.midi.parser.MidiFile(ticks_per_beat=480)
+        ticks_per_beat = midi_obj.ticks_per_beat
+
+        # 如果有小节，则获取初始速度，否则用默认值120 BPM
+        if len(self.bars) > 0:
+            initial_tempo = self.bars[0].tempo
+        else:
+            initial_tempo = 120.0
+
+        # 初始化时间线计数（以ticks为单位）
+        cumulative_bar_ticks = 0
+
+        # 插入初始速度与拍号（如果有小节）
+        if len(self.bars) > 0:
+            # 初始拍号
+            numerator, denominator = self.bars[0].time_signature
+            # TimeSignature 与 TempoChange 用 ticks 来定位事件位置
+            midi_obj.time_signature_changes.append(
+                miditoolkit.midi.containers.TimeSignature(
+                    numerator=numerator,
+                    denominator=denominator,
+                    time=0  # 第一个小节拍号从0 tick开始
+                )
+            )
+            
+            # 初始速度
+            midi_obj.tempo_changes.append(
+                miditoolkit.midi.containers.TempoChange(
+                    tempo=initial_tempo,
+                    time=0  # 初始速度从0 tick开始生效
+                )
+            )
+
+        # 乐器映射表：inst_id -> Instrument对象
+        instrument_map = {}
+
+        last_time_signature = self.bars[0].time_signature if len(self.bars) > 0 else None
+        last_tempo = initial_tempo
+
+        # 遍历每个小节
+        for bar_index, bar in enumerate(self.bars):
+            # 如果拍号变了，插入新的 TimeSignature 事件
+            if bar.time_signature != last_time_signature:
+                numerator, denominator = bar.time_signature
+                midi_obj.time_signature_changes.append(
+                    miditoolkit.midi.containers.TimeSignature(
+                        numerator=numerator,
+                        denominator=denominator,
+                        time=cumulative_bar_ticks
+                    )
+                )
+                last_time_signature = bar.time_signature
+
+            # 如果速度变了，插入新的 TempoChange 事件
+            if bar.tempo != last_tempo:
+                midi_obj.tempo_changes.append(
+                    miditoolkit.midi.containers.TempoChange(
+                        tempo=bar.tempo,
+                        time=cumulative_bar_ticks
+                    )
+                )
+                last_tempo = bar.tempo
+
+            # 计算本小节的长度（以拍为单位）
+            # 拍数 = 分子 * (4 / 分母)
+            # 与之前一样的计算方法
+            beats_per_bar = bar.time_signature[0] * (4.0 / bar.time_signature[1])
+            # 小节长度(以ticks为单位)
+            bar_length_ticks = int(beats_per_bar * ticks_per_beat)
+
+            # 为当前小节中的音符计算相对时间（转换为ticks）
+            for inst_id, track in bar.tracks.items():
+                # 获取或创建Instrument
+                if inst_id not in instrument_map:
+                    program = 0 if inst_id == 128 else inst_id
+                    # 创建乐器（Instrument）
+                    # miditoolkit不强制要求不同instrument_id映射到特定音色，你可以根据实际需要调整program值。
+                    instrument = miditoolkit.midi.containers.Instrument(
+                        program=program,
+                        is_drum=(inst_id == 128),  # 若为打击乐
+                        name=f"Instrument_{inst_id}"
+                    )
+                    instrument_map[inst_id] = instrument
+                    midi_obj.instruments.append(instrument)
+                else:
+                    instrument = instrument_map[inst_id]
+
+                for note in track.notes:
+                    # onset和duration是以某种beats为单位（如之前为12分音符换算）
+                    onset_time_beats = note.onset / 12.0
+                    duration_beats = note.duration / 12.0
+
+                    # 转换为ticks
+                    note_start = cumulative_bar_ticks + int(onset_time_beats * ticks_per_beat)
+                    note_end = note_start + int(duration_beats * ticks_per_beat)
+
+                    midi_note = miditoolkit.midi.containers.Note(
+                        velocity=note.velocity,
+                        pitch=note.pitch,
+                        start=note_start,
+                        end=note_end
+                    )
+                    instrument.notes.append(midi_note)
+
+            # 更新累计的ticks数，以便下一个小节从正确的时间点开始
+            cumulative_bar_ticks += bar_length_ticks
+
+        # 写入MIDI文件
+        midi_obj.dump(midi_fp)
+        print(f"MIDI file successfully written to {midi_fp}")
+
+
+    def to_midi_prettymidi(self, midi_fp: str):
+        """
+        Create a MIDI file from the MultiTrack object.
+        """
+        assert isinstance(midi_fp, str), "midi_fp must be a string"
+        
+        import numpy as np
+        import pretty_midi
+        
+        
+
+        # Initialize instrument map
+        instrument_map = {}
+
+        # Track the cumulative time for each bar
+        cumulative_bar_time = 0.0
+        last_time_signature = None
+
+        # Initialize arrays for tempo changes
+        tempo_change_times = []
+        tempi = []
+
+        # Get initial tempo from the first bar, if available
+        if len(self.bars) > 0:
+            initial_tempo = self.bars[0].tempo
+        else:
+            # If no bars, fallback to a default tempo (e.g. 120 bpm)
+            initial_tempo = 120.0
+
+        # Set the initial tempo event at time zero
+        tempo_change_times.append(0.0)
+        tempi.append(60_000_000 / initial_tempo)
+        last_tempo = initial_tempo
+
+        # Create a PrettyMIDI object
+        midi = pretty_midi.PrettyMIDI(
+            initial_tempo=initial_tempo
+        )
+
+        for bar in self.bars:
+            # Handle time signature changes
+            if bar.time_signature != last_time_signature:
+                numerator, denominator = bar.time_signature
+                midi.time_signature_changes.append(
+                    pretty_midi.TimeSignature(numerator, denominator, cumulative_bar_time)
+                )
+                last_time_signature = bar.time_signature
+
+            # Handle tempo changes
+            if bar.tempo != last_tempo:
+                tempo_in_microseconds = 60_000_000 / bar.tempo
+                tempo_change_times.append(cumulative_bar_time)
+                tempi.append(tempo_in_microseconds)
+                last_tempo = bar.tempo
+
+            # Iterate over tracks in the current bar
+            for inst_id, track in bar.tracks.items():
+                # Ensure instrument_map is used correctly
+                if inst_id not in instrument_map:
+                    program = 0 if inst_id == 128 else inst_id
+                    instrument = pretty_midi.Instrument(program=program, is_drum=(inst_id == 128))
+                    instrument_map[inst_id] = instrument
+                    midi.instruments.append(instrument)
+                else:
+                    instrument = instrument_map[inst_id]
+
+                for note in track.notes:
+                    onset_time_beats = note.onset / 12.0
+                    onset_time_seconds = cumulative_bar_time + (onset_time_beats * (60.0 / bar.tempo))
+                    duration_beats = note.duration / 12.0
+                    duration_seconds = duration_beats * (60.0 / bar.tempo)
+
+                    midi_note = pretty_midi.Note(
+                        velocity=note.velocity,
+                        pitch=note.pitch,
+                        start=onset_time_seconds,
+                        end=onset_time_seconds + duration_seconds
+                    )
+                    instrument.notes.append(midi_note)
+
+            # Calculate beats per bar using the current bar's time signature
+            beats_per_bar = bar.time_signature[0] * (4 / bar.time_signature[1])  # Numerator * (4 / Denominator)
+            bar_duration = beats_per_bar * (60.0 / bar.tempo)
+            cumulative_bar_time += bar_duration
+
+        # Set tempo changes in PrettyMIDI
+        midi._tempo_change_times = np.array(tempo_change_times)
+        midi._tempi = np.array(tempi)
+
+        # Write MIDI file
+        midi.write(midi_fp)
+        print(f"MIDI file successfully written to {midi_fp}")
+
+
+
+
+
+
+
+    def to_midi_old(self, midi_fp: str):
         """
         Create a MIDI file from the MultiTrack object.
         """
@@ -336,8 +573,11 @@ class MultiTrack:
                 # Check if instrument already exists, otherwise create a new one
                 if inst_id not in instrument_map:
                     # You can modify this to assign an appropriate program or instrument type
-                    program = inst_id  # General MIDI Acoustic Grand Piano as default
-                    instrument = pretty_midi.Instrument(program=program, name=f'Instrument {inst_id}')
+                    if inst_id == 128:
+                        program = 0
+                    else:
+                        program = inst_id  # General MIDI Acoustic Grand Piano as default
+                    instrument = pretty_midi.Instrument(program=program, name=f'Instrument {inst_id}', is_drum=track.is_drum)
                     instrument_map[inst_id] = instrument
                     midi.instruments.append(instrument)
                 else:
