@@ -1,8 +1,8 @@
-# REMI-z tokenizer and MultiTrack data structure
+# REMI-z tokenizer and MultiTrack data structure for multitrack music
 
 This is the official implementation of the REMI-z tokenizer in the paper [*Unlocking Potential in Pre-Trained Music Language Models for Versatile Multi-Track Music Arrangement*](https://arxiv.org/abs/2408.15176).
 
-This tool helps to convert your music between MIDI and REMI-z representation, meanwhile facilitate manipulate the music at bar level.
+This tool helps to convert your music between MIDI and REMI-z representation, which is an efficient sequence representation of multitrack music, meanwhile facilitate manipulate the music at bar level.
 
 The core of this tokenizer is the MultiTrack class as the data structure for multitrack music, which is a hierachical format. Here are the structural details:
 - The music is represented by an MultiTrack object, which is list of bars.
