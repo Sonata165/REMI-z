@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='REMI-z',  # 项目名称
-    version='0.5.0',  # 版本号
+    version='0.5.2',  # 版本号
     author='Longshen Ou',  # 作者姓名
     author_email='oulongshen@gmail.com',  # 邮箱地址
     description='Manipulate your MIDI file in bar level, and converting between MIDI and REMI-z format.',
