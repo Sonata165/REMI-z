@@ -7,7 +7,11 @@ from multitrack.core import MultiTrack
 from multitrack.legacy_tokenizer import RemiTokenizer
 
 def main():
-    test_key_norm()
+    test_drum_notes()
+
+def test_drum_notes():
+    multitrack = MultiTrack.from_midi('/Users/sonata/Code/REMI-z/_misc/4bros.mid')
+    a = 2
 
 def test_key_norm():
     multitrack = MultiTrack.from_midi('/Users/sonata/Code/REMI-z/_misc/4bros.mid')

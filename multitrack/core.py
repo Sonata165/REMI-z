@@ -301,7 +301,6 @@ class MultiTrack:
                 tempo_tok = f't-{tempo_id}'
                 bar_seq.append(tempo_tok)
                 
-
             for inst_id, track in bar.tracks.items():
                 track_seq = [f'i-{inst_id}']
                 prev_pos = -1
@@ -309,8 +308,8 @@ class MultiTrack:
                     if note.onset > prev_pos:
                         track_seq.append(f'o-{note.onset}')
                         prev_pos = note.onset
-                    if key_norm:
-                        pitch_id = note.pitch + self.pitch_shift
+                    if track.is_drum:
+                        pitch_id = note.pitch + 128
                     else:
                         pitch_id = note.pitch
                     track_seq.extend([
@@ -328,8 +327,6 @@ class MultiTrack:
         '''
         ret = self.to_remiz_seq(with_ts=with_ts, with_tempo=with_tempo, key_norm=key_norm)
         return ' '.join(ret)
-    
-
 
     def to_midi(self, midi_fp: str):
         """
