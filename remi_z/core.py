@@ -122,6 +122,12 @@ class Track:
         for note in self.notes:
             all_notes.append((note.onset, note.pitch, note.duration, note.velocity))
         return all_notes
+    
+    def get_all_notes(self) -> List[Note]:
+        '''
+        Get all notes in the Track.
+        '''
+        return self.notes
 
 
 class Bar:
@@ -163,6 +169,90 @@ class Bar:
 
     def __repr__(self) -> str:
         return self.__str__()
+    
+    def to_remiz_seq(self, with_ts=False, with_tempo=False, with_velocity=False):
+        bar_seq = []
+
+        # Add time signature
+        if with_ts:
+            # time_sig = bar.time_signature.strip()[1:-1]
+            num, den = self.time_signature
+            ts_token = self.convert_time_signature_to_ts_token(int(num), int(den))
+            bar_seq.append(ts_token)
+
+        if with_tempo:
+            tempo_id = convert_tempo_to_id(self.tempo)
+            tempo_tok = f't-{tempo_id}'
+            bar_seq.append(tempo_tok)
+            
+        for inst_id, track in self.tracks.items():
+            track_seq = [f'i-{inst_id}']
+            prev_pos = -1
+            for note in track.notes:
+                if note.onset > prev_pos:
+                    track_seq.append(f'o-{note.onset}')
+                    prev_pos = note.onset
+
+                if track.is_drum:
+                    pitch_id = note.pitch + 128
+                else:
+                    pitch_id = note.pitch
+                track_seq.extend([
+                    f'p-{pitch_id}',
+                    f'd-{note.duration}',
+                ])
+
+                if with_velocity:
+                    track_seq.append(f'v-{note.velocity}')
+            bar_seq.extend(track_seq)
+        bar_seq.append('b-1')
+
+        return bar_seq
+
+    def get_all_notes(self, include_drum) -> List[Note]:
+        '''
+        Get all notes in the Bar.
+        '''
+        all_notes = []
+        for inst_id, track in self.tracks.items():
+            if not include_drum and track.is_drum:
+                continue
+            all_notes.extend(track.get_all_notes())
+        return all_notes
+    
+    def get_content_seq(self, include_drum=False):
+        '''
+        Convert the Bar object to a content sequence.
+        Including information about all notes being played
+        Without instrument information.
+        '''
+        notes = self.get_all_notes(include_drum=include_drum)
+        notes.sort()
+
+        # Remove repeated notes with same onset and pitch
+        notes_dedup = []
+        prev_onset = None
+        prev_pitch = None
+        for note in notes:
+            if note.onset == prev_onset and note.pitch == prev_pitch:
+                continue
+            notes_dedup.append(note)
+            prev_onset = note.onset
+            prev_pitch = note.pitch
+        notes = notes_dedup
+
+        # Convert to content sequence (containing only o-X, p-X, d-X)
+        bar_seq = []
+        for note in notes:
+            bar_seq.extend([
+                f'o-{note.onset}',
+                f'p-{note.pitch}',
+                f'd-{note.duration}',
+            ])
+
+        bar_seq.append('b-1')
+
+        return bar_seq
     
 
 class MultiTrack:
@@ -403,39 +493,7 @@ class MultiTrack:
         for bar in self.bars:
             bar_seq = []
 
-            # Add time signature
-            if with_ts:
-                # time_sig = bar.time_signature.strip()[1:-1]
-                num, den = bar.time_signature
-                ts_token = self.convert_time_signature_to_ts_token(int(num), int(den))
-                bar_seq.append(ts_token)
-
-            if with_tempo:
-                tempo_id = convert_tempo_to_id(bar.tempo)
-                tempo_tok = f't-{tempo_id}'
-                bar_seq.append(tempo_tok)
-                
-            for inst_id, track in bar.tracks.items():
-                track_seq = [f'i-{inst_id}']
-                prev_pos = -1
-                for note in track.notes:
-                    if note.onset > prev_pos:
-                        track_seq.append(f'o-{note.onset}')
-                        prev_pos = note.onset
-
-                    if track.is_drum:
-                        pitch_id = note.pitch + 128
-                    else:
-                        pitch_id = note.pitch
-                    track_seq.extend([
-                        f'p-{pitch_id}',
-                        f'd-{note.duration}',
-                    ])
-
-                    if with_velocity:
-                        track_seq.append(f'v-{note.velocity}')
-                bar_seq.extend(track_seq)
-            bar_seq.append('b-1')
+            bar_seq = bar.to_remiz_seq(with_ts=with_ts, with_tempo=with_tempo, with_velocity=with_velocity)
             ret.extend(bar_seq) 
         return ret
     
@@ -576,8 +634,6 @@ class MultiTrack:
         
         import numpy as np
         import pretty_midi
-        
-        
 
         # Initialize instrument map
         instrument_map = {}
@@ -685,3 +741,28 @@ class MultiTrack:
                     continue
                 all_notes.extend(track.get_note_list())
         return all_notes
+
+    def get_all_notes(self) -> List[Note]:
+        '''
+        Get all notes in the MultiTrack.
+        '''
+        all_notes = []
+        for bar in self.bars:
+            all_notes.extend(bar.get_all_notes())
+        return all_notes
+    
+    def get_content_seq(self, include_drum=False, return_str=False):
+        '''
+        Convert the MultiTrack object to a content sequence.
+        Including information about all notes being played
+        Without instrument information.
+        '''
+        content_seq = []
+        for bar in self.bars:
+            content_seq.extend(bar.get_content_seq(include_drum=include_drum))
+
+        if return_str:
+            return ' '.join(content_seq)
+        else:
+            return content_seq
+    

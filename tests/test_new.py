@@ -7,7 +7,12 @@ from remi_z.core import MultiTrack
 from remi_z.legacy_tokenizer import RemiTokenizer
 
 def main():
-    test_key_norm_new()
+    test_content_seq()
+
+def test_content_seq():
+    multitrack = MultiTrack.from_midi('/Users/sonata/Code/REMI-z/_misc/4bros.mid')
+    t = multitrack.get_content_seq()
+    a = 2
 
 def test_key_norm_new():
     multitrack = MultiTrack.from_midi('/Users/sonata/Code/REMI-z/_misc/4bros.mid')
