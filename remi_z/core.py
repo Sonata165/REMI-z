@@ -177,7 +177,7 @@ class Bar:
         if with_ts:
             # time_sig = bar.time_signature.strip()[1:-1]
             num, den = self.time_signature
-            ts_token = self.convert_time_signature_to_ts_token(int(num), int(den))
+            ts_token = TimeSignatureUtil.convert_time_signature_to_ts_token(int(num), int(den))
             bar_seq.append(ts_token)
 
         if with_tempo:
