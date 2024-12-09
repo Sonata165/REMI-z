@@ -1,4 +1,4 @@
-miditoolkit==1.0.1
-music21==9.3.0
-pretty_midi==0.2.10
-pyyaml==6.0.2
+miditoolkit>=1.0.1
+music21>=8.3.0
+pretty_midi>=0.2.10
+pyyaml>=6.0.2
