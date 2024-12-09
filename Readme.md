@@ -25,3 +25,6 @@ Install from source
     cd REMI-z
     pip install -r requirements.txt
     pip install .
+
+## Usage
+Please refer to the `demo.ipynb`.

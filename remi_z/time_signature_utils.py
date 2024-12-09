@@ -53,7 +53,10 @@ class TimeSignatureUtil:
             cls.ts_dict = data
 
         if token in data:
-            return data[token]
+            ret = data[token]
+            t1, t2 = ret[1:-1].split(',')
+            ret = int(t1), int(t2)
+            return ret
         else:
             raise ValueError('Invalid time signature token: {}'.format(token))
 

@@ -10,39 +10,8 @@ from remi_z import keys_normalization
 
 class MidiEncoder(object):
     def __init__(self):
-        key_profile_fp = os.path.join(os.path.dirname(__file__), 'key_profile.pickle')
-        # key_profile_fp = '/Users/sonata/Code/REMI-z/multitrack/legacy/midiprocessor/key_profile.pickle'
-        with open(key_profile_fp, 'rb') as f:
-            self.key_profile = pickle.load(f) # [24, 12], former [12,12] for major, latter 12 for minor
-
-        # Apply weighting to key_profile
-        major_weight = [2, 0, 1.0, 0, 1.5, 1.0, 0, 1.5, 0, 1, 0, 1]
-        minor_weight = [2, 0, 1, 1.5, 0, 1.0, 0, 1.5, 1.0, 0, 1.0, 0]
-
-        adjusted_key_profile = deepcopy(self.key_profile).astype('float64')
-
-        for i in range(24):
-            if i < 12:
-                # circular right shift major weight
-                shifted_major_weight = major_weight[-i:] + major_weight[:-i]
-
-                # Position-wise multiplication
-                for k in range(12):
-                    adjusted_key_profile[i][k] *= shifted_major_weight[k]
-            else:
-                j = i - 12
-                # circular shift minor weight
-                shifted_minor_weight = minor_weight[-j:] + minor_weight[:-j]
-
-                # Position-wise multiplication
-                for k in range(12):
-                    adjusted_key_profile[i][k] *= shifted_minor_weight[k]
-        self.key_profile = adjusted_key_profile
-
         self.DEFAULT_TS = (4, 4)
         self.DEFAULT_TEMPO = 120.0
-
-        
 
     def time_to_pos(self, t, ticks_per_beat):
         pos_resolution = 12 # 12 positions per beat
@@ -261,7 +230,9 @@ def convert_tempo_to_id(x):
     return e
 
 
-def convert_id_to_tempo(self, x):
-    return 2 ** (x / self.tempo_quant) * self.min_tempo
+def convert_id_to_tempo(x):
+    tempo_quant = 12
+    min_tempo = 16
+    return 2 ** (x / tempo_quant) * min_tempo
 
 

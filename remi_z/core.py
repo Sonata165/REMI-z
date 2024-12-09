@@ -185,9 +185,10 @@ class MultiTrack:
     def __getitem__(self, idx):
         if isinstance(idx, int):
             bar_subset = [self.bars[idx]]
+            return self.bars[idx]
         elif isinstance(idx, slice):
             bar_subset = self.bars[idx]
-        return MultiTrack(bars=bar_subset)
+            return MultiTrack(bars=bar_subset)
     
     def __str__(self) -> str:
         return f'MultiTrack: {len(self.bars)} bars'
