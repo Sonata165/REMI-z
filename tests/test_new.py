@@ -11,8 +11,8 @@ def main():
 
 def test_content_seq():
     multitrack = MultiTrack.from_midi('/Users/sonata/Code/REMI-z/_misc/4bros.mid')
-    t = multitrack.get_content_seq()
-    a = 2
+    t = multitrack[10:11].get_content_seq(return_str=True)
+    print(t)
 
 def test_key_norm_new():
     multitrack = MultiTrack.from_midi('/Users/sonata/Code/REMI-z/_misc/4bros.mid')
