@@ -12,7 +12,7 @@ The core of this tokenizer is the MultiTrack class as the data structure for mul
         - Each Track object represents one instrument, contatining notes of that instrument in this bar.
             - Each Note object represent one note, including onset, offset, pitch, velocity information.
 
-This Multitrack object can be create from various formats (supporting MIDI for now), and convert into various formats (e.g., MIDI, and REMI-z representation).
+This Multitrack object can be create from various formats (e.g., MIDI or REMI-z), and convert into various formats (e.g., MIDI, and REMI-z representation).
 
 ## Install
 Install from pip

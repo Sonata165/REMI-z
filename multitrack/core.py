@@ -2,15 +2,17 @@ import os
 import sys
 dirof = os.path.dirname
 sys.path.insert(0, dirof(__file__))
+
 import miditoolkit
-import yaml
 import pretty_midi
-from typing import List, Dict
-from midi_encoding import MidiEncoder, load_midi, fill_pos_ts_and_tempo_, convert_tempo_to_id
-from time_signature_utils import convert_time_signature_to_ts_token
+from utils import read_yaml
+from typing import List, Dict, Tuple
+from midi_encoding import MidiEncoder, load_midi, fill_pos_ts_and_tempo_, convert_tempo_to_id, convert_id_to_tempo
+from time_signature_utils import TimeSignatureUtil
+from keys_normalization import detect_key
 
 class Note:
-    def __init__(self, onset:int, duration:int, pitch:int, velocity:int, is_drum=False):
+    def __init__(self, onset:int, duration:int, pitch:int, velocity:int=64, is_drum=False):
         '''
         Create an instance of a Note object.
 
@@ -29,7 +31,6 @@ class Note:
             The MIDI pitch of the note.
             The pitch value should be in the range of [0, 255].
                 0~127: MIDI pitch
-                128~255: Drum pitch
         velocity : int
             The velocity of the note.
         '''
@@ -43,7 +44,7 @@ class Note:
         # if is_drum:
         #     assert 128 <= pitch <= 255, "Drum pitch must be in the range of [128, 255]"
         # else:
-        #     assert 0 <= pitch <= 127, "MIDI pitch must be in the range of [0, 127]"
+        assert 0 <= pitch <= 127, "MIDI pitch must be in the range of [0, 127]"
 
         # Round the values
         duration = min(max(1, duration), 127) # duration must be in the range of [1, 127]
@@ -109,19 +110,40 @@ class Track:
         Track with higher pitch will be placed at the front (more important)
         '''
         return self.avg_pitch > other.avg_pitch
+    
+    def get_note_list(self) -> List[Tuple[int, int, int, int]]:
+        '''
+        Get all notes in the Track.
+
+        Returns:
+            List of tuples (onset, pitch, duration, velocity)
+        '''
+        all_notes = []
+        for note in self.notes:
+            all_notes.append((note.onset, note.pitch, note.duration, note.velocity))
+        return all_notes
 
 
 class Bar:
-    def __init__(self, id, notes_of_insts:List[Note], time_signature, tempo):
+    def __init__(self, id, notes_of_insts:Dict[int, Dict[int, List]], time_signature=None, tempo=None):
         '''
         NOTE: The instrument with higher average pitch will be placed at the front.
         '''
+        if time_signature:
+            assert isinstance(time_signature, tuple), "time_signature must be a tuple"
+        else:
+            time_signature = (4, 4)
+        if tempo:
+            assert isinstance(tempo, (int, float)), "tempo must be an integer or float"
+        else:
+            tempo = 120.0
+
         # Round tempo to 0.01
         tempo = round(tempo, 2)
 
         self.bar_id = id
         track_list = []
-        self.tracks = {}
+        self.tracks: Dict[int, Track] = {}
         for inst_id, notes in notes_of_insts.items():
             track = Track(inst_id, notes)
             track_list.append(track)
@@ -144,7 +166,7 @@ class Bar:
     
 
 class MultiTrack:
-    def __init__(self, bars:List[Bar], pitch_shift=None, is_major=None):
+    def __init__(self, bars:List[Bar]):
         '''
         Args:
             bars: List of Bar objects
@@ -152,8 +174,6 @@ class MultiTrack:
             is_major: The major/minor key information. None means not detected.
         '''
         self.bars = bars 
-        self.pitch_shift = pitch_shift
-        self.is_major = is_major
 
         # Load the time signature dictionary
         ts_fp = os.path.join(os.path.dirname(__file__), 'dict_time_signature.yaml')
@@ -179,14 +199,31 @@ class MultiTrack:
         '''
         Normalize the pitch of all notes in the MultiTrack object.
         '''
+
+        ''' Detect major/minor key and pitch shift needed for the key normalization '''
+        is_major, pitch_shift = self.detect_key()
+
+        ''' Apply the pitch shift to the notes '''
         for bar in self.bars:
             for inst_id, track in bar.tracks.items():
                 if track.is_drum:
                     continue
                 else:
                     for note in track.notes:
-                        note.pitch += self.pitch_shift
+                        note.pitch += pitch_shift
         return self
+    
+    def detect_key(self):
+        '''
+        Determine the major/minor key and pitch shift needed for key normalization.
+
+        Returns:
+        - is_major: True if major, False if minor
+        - pitch_shift: The pitch shift needed for key normalization
+        '''
+        note_list = self.get_note_list(with_drum=False)
+        is_major, pitch_shift = detect_key(note_list)
+        return is_major, pitch_shift
 
     def get_unique_insts(self):
         '''
@@ -226,9 +263,9 @@ class MultiTrack:
         # Fill time signature and tempo info to the first pos of each bar
         pos_info = fill_pos_ts_and_tempo_(pos_info)
 
-        # Determine pitch normalization and major/minor info
-        _, is_major, pitch_shift = midi_encoder.normalize_pitch(pos_info) # Can make error some times. Not sure about direction of pitch shift yet.
-        # If apply this pitch shift to the original MIDI, the key will be C major or A minor
+        # # Determine pitch normalization and major/minor info
+        # _, is_major, pitch_shift = midi_encoder.normalize_pitch(pos_info) # Can make error some times. Not sure about direction of pitch shift yet.
+        # # If apply this pitch shift to the original MIDI, the key will be C major or A minor
 
         # Generate bar sequences and note sequences
         bar_seqs = []
@@ -279,9 +316,85 @@ class MultiTrack:
                 
             bar_id_prev_pos = bar_id
 
-        return cls(bars=bar_seqs, pitch_shift=pitch_shift, is_major=is_major)
+        return cls(bars=bar_seqs)
     
-    def to_remiz_seq(self, with_ts=False, with_tempo=False, key_norm=False):
+    @classmethod
+    def from_remiz_seq(cls, remiz_seq:List[str]):
+        '''
+        Create a MultiTrack object from a remiz sequence.
+        '''
+        assert isinstance(remiz_seq, list), "remiz_seq must be a list"
+
+        remiz_str = ' '.join(remiz_seq)
+        return cls.from_remiz_str(remiz_str)
+
+    @classmethod
+    def from_remiz_str(cls, remiz_str:str):
+        '''
+        Create a MultiTrack object from a remiz string.
+        '''
+        assert isinstance(remiz_str, str), "remiz_str must be a string"
+        assert 'b-1' in remiz_str, "remiz_str must contain at least one bar"
+        if 'v' in remiz_str:
+            with_velocity = True
+        else:
+            with_velocity = False
+
+        bar_seqs = []
+
+        # Split to bars
+        bar_strs = remiz_str.split('b-1')
+        bar_strs.pop()
+        for bar_id, bar_str in enumerate(bar_strs):
+            bar_seq = bar_str.strip().split()
+            
+            time_sig = None
+            tempo = None
+            need_create_note = False
+            notes_of_instruments = {}
+            for tok in bar_seq:
+                if tok.startswith('s-'):
+                    time_sig = TimeSignatureUtil.convert_time_signature_token_to_tuple(tok)
+                elif tok.startswith('t-'):
+                    tempo_id = int(tok[2:])
+                    tempo = convert_id_to_tempo(tempo_id)
+                elif tok.startswith('i-'):
+                    inst_id = int(tok[2:])
+                elif tok.startswith('o-'):
+                    pos = int(tok[2:])
+                elif tok.startswith('p-'):
+                    pitch = int(tok[2:])
+                    if pitch >= 128:
+                        pitch -= 128
+                elif tok.startswith('d-'):
+                    duration = int(tok[2:])
+                    if not with_velocity:
+                        velocity = 64
+                        need_create_note = True
+                elif tok.startswith('v-'):
+                    velocity = int(tok[2:])
+                    need_create_note = True
+
+                if need_create_note:
+                    if inst_id not in notes_of_instruments:
+                        notes_of_instruments[inst_id] = {}
+                    if pos not in notes_of_instruments[inst_id]:
+                        notes_of_instruments[inst_id][pos] = []
+                    notes_of_instruments[inst_id][pos].append([pitch, duration, velocity])
+                    need_create_note = False
+            
+            # Create a Bar instance
+            bar_instance = Bar(
+                id=bar_id, 
+                notes_of_insts=notes_of_instruments,
+                time_signature=time_sig,
+                tempo=tempo,
+            )
+            bar_seqs.append(bar_instance)
+                
+        return cls(bars=bar_seqs)
+
+    def to_remiz_seq(self, with_ts=False, with_tempo=False, with_velocity=False):
         '''
         Convert the MultiTrack object to a REMI-z sequence of tokens.
         '''
@@ -308,6 +421,7 @@ class MultiTrack:
                     if note.onset > prev_pos:
                         track_seq.append(f'o-{note.onset}')
                         prev_pos = note.onset
+
                     if track.is_drum:
                         pitch_id = note.pitch + 128
                     else:
@@ -316,16 +430,19 @@ class MultiTrack:
                         f'p-{pitch_id}',
                         f'd-{note.duration}',
                     ])
+
+                    if with_velocity:
+                        track_seq.append(f'v-{note.velocity}')
                 bar_seq.extend(track_seq)
             bar_seq.append('b-1')
             ret.extend(bar_seq) 
         return ret
     
-    def to_remiz_str(self, with_ts=False, with_tempo=False, key_norm=False):
+    def to_remiz_str(self, with_ts=False, with_tempo=False, with_velocity=False):
         '''
         Convert the MultiTrack object to a REMI-z string.
         '''
-        ret = self.to_remiz_seq(with_ts=with_ts, with_tempo=with_tempo, key_norm=key_norm)
+        ret = self.to_remiz_seq(with_ts=with_ts, with_tempo=with_tempo, with_velocity=with_velocity)
         return ' '.join(ret)
 
     def to_midi(self, midi_fp: str):
@@ -451,6 +568,8 @@ class MultiTrack:
     def to_midi_prettymidi(self, midi_fp: str):
         """
         Create a MIDI file from the MultiTrack object.
+
+        Deprecated: Use to_midi() instead. Because this version cannot handle tempo changes.
         """
         assert isinstance(midi_fp, str), "midi_fp must be a string"
         
@@ -541,74 +660,6 @@ class MultiTrack:
         midi.write(midi_fp)
         print(f"MIDI file successfully written to {midi_fp}")
 
-
-
-
-
-
-
-    def to_midi_old(self, midi_fp: str):
-        """
-        Create a MIDI file from the MultiTrack object.
-        """
-        assert isinstance(midi_fp, str), "midi_fp must be a string"
-        
-        # Create a PrettyMIDI object
-        midi = pretty_midi.PrettyMIDI()
-
-        # Iterate over each bar in the MultiTrack
-        instrument_map = {}  # Map to keep track of instruments
-
-        # Calculate seconds per beat from BPM
-        seconds_per_beat = 60.0 / 120.0  # Assume 120 BPM
-
-        # Track the cumulative time for each bar
-        cumulative_bar_time = 0.0
-
-        for bar in self.bars:
-            for inst_id, track in bar.tracks.items():
-                # Check if instrument already exists, otherwise create a new one
-                if inst_id not in instrument_map:
-                    # You can modify this to assign an appropriate program or instrument type
-                    if inst_id == 128:
-                        program = 0
-                    else:
-                        program = inst_id  # General MIDI Acoustic Grand Piano as default
-                    instrument = pretty_midi.Instrument(program=program, name=f'Instrument {inst_id}', is_drum=track.is_drum)
-                    instrument_map[inst_id] = instrument
-                    midi.instruments.append(instrument)
-                else:
-                    instrument = instrument_map[inst_id]
-                
-                # Iterate over all notes in the current track
-                for note in track.notes:
-                    # Convert onset and duration from '1/48 note' (1/12 beat) to beats, then to seconds
-                    onset_time_beats = note.onset / 12.0  # Convert to beats
-                    onset_time_seconds = cumulative_bar_time + (onset_time_beats * seconds_per_beat)
-
-                    duration_beats = note.duration / 12.0  # Convert to beats
-                    duration_seconds = duration_beats * seconds_per_beat
-
-                    # Create PrettyMIDI Note object
-                    midi_note = pretty_midi.Note(
-                        velocity=note.velocity,
-                        pitch=note.pitch,
-                        start=onset_time_seconds,
-                        end=onset_time_seconds + duration_seconds
-                    )
-
-                    # Add the note to the corresponding instrument
-                    instrument.notes.append(midi_note)
-
-            # Update cumulative time for the next bar
-            # Assuming each bar is 4 beats (a full measure in 4/4 time)
-            cumulative_bar_time += 4 * seconds_per_beat
-
-        # Write the PrettyMIDI object to the specified MIDI file path
-        midi.write(midi_fp)
-
-        print(f"MIDI file successfully written to {midi_fp}")
-
     def convert_time_signature_to_ts_token(self, numerator, denominator):
         ts_dict = self.ts_dict
         valid = False
@@ -619,7 +670,17 @@ class MultiTrack:
         if not valid:
             raise ValueError('Invalid time signature: {}/{}'.format(numerator, denominator))
 
-def read_yaml(fp):
-    with open(fp, 'r') as f:
-        data = yaml.safe_load(f)
-    return data
+    def get_note_list(self, with_drum=False) -> List[Tuple[int, int, int, int]]:
+        '''
+        Get all notes in the MultiTrack.
+
+        Returns:
+            List of tuples (onset, pitch, duration, velocity)
+        '''
+        all_notes = []
+        for bar in self.bars:
+            for inst_id, track in bar.tracks.items():
+                if not with_drum and track.is_drum:
+                    continue
+                all_notes.extend(track.get_note_list())
+        return all_notes

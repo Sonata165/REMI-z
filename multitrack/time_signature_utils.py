@@ -1,9 +1,11 @@
 
 import os
 import sys
-sys.path.append('..')
-import yaml
-# from src_hf.utils import *
+dirof = os.path.dirname
+sys.path.insert(0, dirof(__file__))
+
+from utils import read_yaml
+
 
 def main():
     # tide_up_time_signature()
@@ -20,6 +22,40 @@ def test_ts_tempo_converter():
     tempo = [60, 88, 96, 108, 128, 180, 200]
     for t in tempo:
         print(t, convert_tempo_to_tempo_token(t))
+
+
+class TimeSignatureUtil:
+    @classmethod
+    def convert_time_signature_to_ts_token(cls, numerator, denominator):
+        if hasattr(cls, 'ts_dict'):
+            data = cls.ts_dict  
+        else:
+            ts_fp = os.path.join(os.path.dirname(__file__), 'dict_time_signature.yaml')
+            data = read_yaml(ts_fp)
+            cls.ts_dict = data
+
+        valid = False
+        for k, v in data.items():
+            if v == '({}, {})'.format(numerator, denominator):
+                valid = True
+                return k
+            
+        if not valid:
+            raise ValueError('Invalid time signature: {}/{}'.format(numerator, denominator))
+        
+    @classmethod
+    def convert_time_signature_token_to_tuple(cls, token):
+        if hasattr(cls, 'ts_dict'):
+            data = cls.ts_dict  
+        else:
+            ts_fp = os.path.join(os.path.dirname(__file__), 'dict_time_signature.yaml')
+            data = read_yaml(ts_fp)
+            cls.ts_dict = data
+
+        if token in data:
+            return data[token]
+        else:
+            raise ValueError('Invalid time signature token: {}'.format(token))
 
 
 def convert_time_signature_to_ts_token(numerator, denominator):
@@ -46,11 +82,11 @@ def convert_tempo_to_tempo_token(bpm):
         raise ValueError('Invalid tempo: {}'.format(bpm))
         
 
-
 def tide_up_time_signature():
     ts = read_json('/home/longshen/work/MuseCoco/musecoco/midi_utils/ts_dict.json')
     ts_new = {'s-{}'.format(k): '({}, {})'.format(v[0], v[1]) for k, v in ts.items()}
     save_yaml(ts_new, '/home/longshen/work/MuseCoco/musecoco/midi_utils/ts_dict.yaml')
+
 
 def generate_tempo_dict():
     tempo_dict = {}
@@ -69,58 +105,7 @@ def generate_tempo_dict():
 
     # for i in range(0, ct, '/home/longshen/work/MuseCoco/musecoco/midi_utils/tempo_dict.yaml')
 
-def test_tempo_converter():
-    print(convert_tempo_to_id(16))
-    print(convert_tempo_to_id(256))
-    print(convert_tempo_to_id(32))
-    print(convert_tempo_to_id(64))
-    print(convert_tempo_to_id(128))
-    print(convert_tempo_to_id(256))
 
-    for bpm in range(64, 150):
-        print(bpm, convert_tempo_to_id(bpm), reverse_convert_tempo_to_id(convert_tempo_to_id(bpm)))
-    
-    '''
-    Tempo token will fall into the range of t-0 ~ t-48
-    bpm=16: t-0
-    bpm=32: t-12
-    bpm=64: t-24
-    bpm=128: t-36
-    bpm=256: t-48
-    
-    Starting from 16, bpm x 2 -> t-X + 12
-    '''
-
-def convert_tempo_to_id(x):
-    import math
-    x = max(x, 16) # min_tempo = 16
-    x = min(x, 256) # max_tempo = 256
-    x = x / 16
-    e = round(math.log2(x) * 12) # tempo_quant = 12
-    return e
-
-def convert_id_to_tempo(x):
-    import math
-    e = x / 12
-    x = 2 ** e
-    x = round(x) * 16
-    return x
-
-def reverse_convert_tempo_to_id(e):
-    # 反向量化
-    log_value = e / 12
-    
-    # 反向对数变换：求2的对数值的幂，得到原始的缩放值
-    scaled_value = 2 ** log_value
-    
-    # 反向缩放：乘以最小节奏得到原始的BPM值
-    x = scaled_value * 16
-    
-    # 确保结果在原始函数定义的min_tempo和max_tempo之间
-    x = max(x, 16)
-    x = min(x, 256)
-    
-    return x
 
 if __name__ == '__main__':
     main()

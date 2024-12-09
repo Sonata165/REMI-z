@@ -8,27 +8,89 @@ Fixed:
 '''
 
 import numpy as np
+from typing import List, Tuple
 
 
-def get_notes_from_pos_info(pos_info):
-    notes = []
-    min_pitch = 10000
-    max_pitch = -1
-    for bar, ts, pos, tempo, insts_notes in pos_info:
-        if insts_notes is None:
-            continue
-        for inst_id in insts_notes:
-            if inst_id == 128:  # ignore percussion
-                continue
-            inst_notes = insts_notes[inst_id]
-            for note in inst_notes:
-                notes.append(note)
-                min_pitch = min(note[0], min_pitch)
-                max_pitch = max(note[0], max_pitch)
-    return notes, min_pitch, max_pitch
+key_profile = np.array([
+    [ 1, -1,  1, -1,  1,  1, -1,  1, -1,  1, -1,  1], # C major
+    [ 1,  1, -1,  1, -1,  1,  1, -1,  1, -1,  1, -1],
+    [-1,  1,  1, -1,  1, -1,  1,  1, -1,  1, -1,  1],
+    [ 1, -1,  1,  1, -1,  1, -1,  1,  1, -1,  1, -1],
+    [-1,  1, -1,  1,  1, -1,  1, -1,  1,  1, -1,  1],
+    [ 1, -1,  1, -1,  1,  1, -1,  1, -1,  1,  1, -1],
+    [-1,  1, -1,  1, -1,  1,  1, -1,  1, -1,  1,  1],
+    [ 1, -1,  1, -1,  1, -1,  1,  1, -1,  1, -1,  1],
+    [ 1,  1, -1,  1, -1,  1, -1,  1,  1, -1,  1, -1],
+    [-1,  1,  1, -1,  1, -1,  1, -1,  1,  1, -1,  1],
+    [ 1, -1,  1,  1, -1,  1, -1,  1, -1,  1,  1, -1],
+    [-1,  1, -1,  1,  1, -1,  1, -1,  1, -1,  1,  1],
+
+    [ 1, -1,  1,  1, -1,  1, -1,  1,  1, -1,  1, -1], # A minor
+    [-1,  1, -1,  1,  1, -1,  1, -1,  1,  1, -1,  1],
+    [ 1, -1,  1, -1,  1,  1, -1,  1, -1,  1,  1, -1],
+    [-1,  1, -1,  1, -1,  1,  1, -1,  1, -1,  1,  1],
+    [ 1, -1,  1, -1,  1, -1,  1,  1, -1,  1, -1,  1],
+    [ 1,  1, -1,  1, -1,  1, -1,  1,  1, -1,  1, -1],
+    [-1,  1,  1, -1,  1, -1,  1, -1,  1,  1, -1,  1],
+    [ 1, -1,  1,  1, -1,  1, -1,  1, -1,  1,  1, -1],
+    [-1,  1, -1,  1,  1, -1,  1, -1,  1, -1,  1,  1],
+    [ 1, -1,  1, -1,  1,  1, -1,  1, -1,  1, -1,  1],
+    [ 1,  1, -1,  1, -1,  1,  1, -1,  1, -1,  1, -1],
+    [-1,  1,  1, -1,  1, -1,  1,  1, -1,  1, -1,  1],
+])
 
 
-def get_pitch_class_histogram(notes, normalize=True, use_duration=True, use_velocity=True):
+def detect_key(note_list:List[Tuple[int, int, int, int]]):
+    '''
+    Determine the major/minor key and pitch shift needed for key normalization.
+
+    Use this version instead. Others are deprecated.
+
+    Args:
+    - note_list: List of notes, each note is a tuple of (onset, pitch, duration, velocity)
+
+    Returns:
+    - is_major: True if major, False if minor
+    - pitch_shift: The pitch shift needed for key normalization
+    '''
+    
+    pitch_class_histogram = get_pitch_class_histogram(
+        note_list, 
+        normalize=True,
+        use_duration=True, 
+        use_velocity=True,
+        note_has_onset=True,
+    )
+
+    pitches = [note[1] for note in note_list]
+    min_pitch = min(pitches)
+    max_pitch = max(pitches)
+
+    pitch_shift, is_major = get_pitch_shift_from_pitch_histogram(
+        pitch_class_histogram,
+        min_pitch,
+        max_pitch,
+    )
+    
+    return is_major, pitch_shift
+
+
+def get_pitch_class_histogram(
+        notes:List[Tuple[int, int, int]], 
+        normalize=True, 
+        use_duration=True, 
+        use_velocity=True,
+        note_has_onset=False,
+    ):
+    '''
+    Calculate the pitch class histogram of the notes.
+
+    Args:
+    - notes: List of notes, each note is a tuple of (pitch, duration, velocity)
+    '''
+    if note_has_onset:
+        notes = [(note[1], note[2], note[3]) for note in notes]
+
     weights = np.ones(len(notes))
     # Assumes that duration and velocity have equal weight
     # (pitch, duration, velocity)
@@ -44,34 +106,7 @@ def get_pitch_class_histogram(notes, normalize=True, use_duration=True, use_velo
     return histogram
 
 
-def get_pitch_shift(pos_info, key_profile, normalize=True, use_duration=True, use_velocity=True,
-                    ensure_valid_range=True):
-    '''
-    Return:
-    - Pitch shift value (If add this value to the pitch, the key will be C major or A minor)
-    - Major or minor
-    - Min pitch
-    - Max pitch
-    '''
-    notes, min_pitch, max_pitch = get_notes_from_pos_info(pos_info)
-    assert min_pitch >= 0 and max_pitch < 128
-    if len(notes) == 0:
-        return 0, None, None, None
-    histogram = None
-    key_candidate = None
-    major_index = None
-    minor_index = None
-
-    use_duration = True
-    use_velocity = True
-
-    histogram = get_pitch_class_histogram(
-        notes, 
-        normalize=normalize,
-        use_duration=use_duration, 
-        use_velocity=use_velocity,
-    )
-
+def get_pitch_shift_from_pitch_histogram(histogram, min_pitch, max_pitch):
     key_candidate = np.dot(key_profile, histogram) # [24,]
     major_key_candidate = key_candidate[:12]
     minor_key_candidate = key_candidate[12:]
@@ -92,15 +127,16 @@ def get_pitch_shift(pos_info, key_profile, normalize=True, use_duration=True, us
         real_key = key_number
         pitch_shift = 0 - real_key  
 
-    if ensure_valid_range:
-        while pitch_shift + min_pitch < 0:
-            pitch_shift += 12
-        while pitch_shift + max_pitch >= 128:
-            pitch_shift -= 12
-        try:
-            assert pitch_shift + min_pitch >= 0, \
-                "Pitch value range (%d, %d) is too large to make the values valid after pitch shift."
-        except AssertionError:
-            pitch_shift = 0
+    # Make the shift to a nearer octave
+    if pitch_shift > 6:
+        pitch_shift -= 12
+    elif pitch_shift < -6:
+        pitch_shift += 12
 
-    return pitch_shift, is_major, min_pitch, max_pitch
+    # Ensure the pitch shift is within the valid range
+    while pitch_shift + min_pitch < 0:
+        pitch_shift += 12
+    while pitch_shift + max_pitch > 127:
+        pitch_shift -= 12
+
+    return pitch_shift, is_major

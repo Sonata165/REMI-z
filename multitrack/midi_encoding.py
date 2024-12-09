@@ -176,8 +176,9 @@ class MidiEncoder(object):
 
         return pos_info
 
-    def normalize_pitch(self, pos_info, inplace=False):
+    def normalize_pitch(self, pos_info):
         assert self.key_profile is not None, "Please load key_profile first, using load_key_profile method."
+
         pitch_shift, is_major, _, _ = keys_normalization.get_pitch_shift(
             pos_info,
             self.key_profile,
@@ -185,19 +186,11 @@ class MidiEncoder(object):
             ensure_valid_range=True
         )
         pitch_shift = int(pitch_shift)
-        if not inplace:
-            pos_info = deepcopy(pos_info)
-        for bar, ts, pos, tempo, insts_notes in pos_info:
-            if insts_notes is None:
-                continue
-            for inst_id in insts_notes:
-                if inst_id >= 128:
-                    continue
-                inst_notes = insts_notes[inst_id]
-                for note_idx, (pitch, duration, velocity) in enumerate(inst_notes):
-                    # inst_notes[note_idx] = (pitch + pitch_shift, duration, velocity)
-                    inst_notes[note_idx][0] = pitch + pitch_shift
-        return pos_info, is_major, pitch_shift
+      
+        return is_major, pitch_shift
+
+
+
 
 
 def load_midi(file_path=None, file=None, midi_checker='default'):
@@ -266,6 +259,7 @@ def convert_tempo_to_id(x):
     x = x / 16
     e = round(math.log2(x) * tempo_quant)
     return e
+
 
 def convert_id_to_tempo(self, x):
     return 2 ** (x / self.tempo_quant) * self.min_tempo
