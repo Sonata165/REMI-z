@@ -3,8 +3,8 @@ import sys
 dirof = os.path.dirname
 sys.path.insert(0, dirof(dirof(__file__)))
 
-from multitrack.core import MultiTrack
-from multitrack.legacy_tokenizer import RemiTokenizer
+from remi_z.core import MultiTrack
+from remi_z.legacy_tokenizer import RemiTokenizer
 
 def main():
     test_key_norm_new()

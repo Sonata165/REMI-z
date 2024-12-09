@@ -1,4 +1,4 @@
-from multitrack.legacy_tokenizer import RemiTokenizer
+from remi_z.legacy_tokenizer import RemiTokenizer
 
 def test_old_tokenizer():
     pass

@@ -5,7 +5,7 @@ import typing
 import pickle
 import miditoolkit
 from copy import deepcopy
-from multitrack import keys_normalization
+from remi_z import keys_normalization
 
 
 class MidiEncoder(object):
