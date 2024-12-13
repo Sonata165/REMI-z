@@ -7,7 +7,14 @@ from remi_z.core import MultiTrack, Bar
 from remi_z.legacy_tokenizer import RemiTokenizer
 
 def main():
-    test_proll()
+    test_quantize()
+
+def test_quantize():
+    multitrack = MultiTrack.from_midi('/Users/sonata/Code/REMI-z/_misc/4bros.mid')
+    multitrack.to_midi('/Users/sonata/Code/REMI-z/_misc/4bros_before.mid')
+    multitrack.quantize_to_16th()
+    multitrack.to_midi('/Users/sonata/Code/REMI-z/_misc/4bros_quantized.mid')
+    a = 2
 
 def test_proll():
     multitrack = MultiTrack.from_midi('/Users/sonata/Code/REMI-z/_misc/4bros.mid')

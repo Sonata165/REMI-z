@@ -235,6 +235,8 @@ class Bar:
     def to_piano_roll(self, of_inst=None):
         '''
         Convert the Bar object to a piano roll matrix.
+
+        NOTE: Always quantize the MultiTrack to 16th notes and then use this function
         '''
         pos_per_beat = 4
         beats_per_bar = self.time_signature[0]
@@ -265,7 +267,7 @@ class Bar:
         mt = MultiTrack.from_bars([self])
         mt.to_midi(midi_fp)
 
-    def get_all_notes(self, include_drum) -> List[Note]:
+    def get_all_notes(self, include_drum=True) -> List[Note]:
         '''
         Get all notes in the Bar.
         '''
@@ -367,7 +369,20 @@ class MultiTrack:
                 else:
                     for note in track.notes:
                         note.pitch += pitch_shift
-        return self
+    
+    def quantize_to_16th(self):
+        '''
+        Quantize the MultiTrack object to 16th notes. 
+        On both onset and duration.
+        '''
+        for bar in self.bars:
+            for inst_id, track in bar.tracks.items():
+                for note in track.notes:
+                    note.onset = round(note.onset / 3) * 3
+                    note.duration = max(1, round(note.duration / 3)) * 3
+
+                    if note.duration > 20:
+                        a = 3
     
     def detect_key(self):
         '''
@@ -815,13 +830,13 @@ class MultiTrack:
                 all_notes.extend(track.get_note_list())
         return all_notes
 
-    def get_all_notes(self) -> List[Note]:
+    def get_all_notes(self, include_drum=True) -> List[Note]:
         '''
         Get all notes in the MultiTrack.
         '''
         all_notes = []
         for bar in self.bars:
-            all_notes.extend(bar.get_all_notes())
+            all_notes.extend(bar.get_all_notes(include_drum=include_drum))
         return all_notes
     
     def get_content_seq(self, include_drum=False, of_inst=None, return_str=False):
