@@ -171,6 +171,28 @@ class Bar:
     def __repr__(self) -> str:
         return self.__str__()
     
+    @classmethod
+    def from_piano_roll(cls, piano_roll, time_signature=(4, 4), tempo=120.0):
+        '''
+        Convert the Bar object to a piano roll matrix.
+        '''
+        notes = {}
+        for p_pos in range(piano_roll.shape[0]):
+            for pitch in range(piano_roll.shape[1]):
+                if piano_roll[p_pos, pitch] > 0:
+                    p_dur = piano_roll[p_pos, pitch]
+                    dur = (p_dur * 3).item()
+                    onset = p_pos * 3
+                    # note = Note(onset=onset, duration=dur, pitch=pitch)
+                    note = [pitch, dur, 64] # pitch, duration, velocity
+
+                    # Add note to notes
+                    if onset not in notes:
+                        notes[onset] = []
+                    notes[onset].append(note)
+
+        return cls(id=-1, notes_of_insts={0:notes}, time_signature=time_signature, tempo=tempo)
+
     def to_remiz_seq(self, with_ts=False, with_tempo=False, with_velocity=False):
         bar_seq = []
 
@@ -219,7 +241,7 @@ class Bar:
         pos_per_bar = pos_per_beat * beats_per_bar
 
         # Create a piano roll matrix
-        piano_roll = np.zeros((pos_per_bar, 128))
+        piano_roll = np.zeros((pos_per_bar, 128), dtype=int)
 
         # Obtain notes to be added to the piano roll
         if of_inst:
@@ -232,10 +254,16 @@ class Bar:
         # Add notes to the piano roll
         # NOTE: the pos in piano roll is 1/3 of note.onset
         for note in notes:
-            onset_pos = note.onset // 3
-            dur = note.duration // 3
+            onset_pos = min(round(note.onset / 3), pos_per_bar - 1)
+            dur = round(note.duration / 3)
             pitch = note.pitch
             piano_roll[onset_pos, pitch] = dur
+
+        return piano_roll
+
+    def to_midi(self, midi_fp: str):
+        mt = MultiTrack.from_bars([self])
+        mt.to_midi(midi_fp)
 
     def get_all_notes(self, include_drum) -> List[Note]:
         '''
@@ -291,10 +319,6 @@ class Bar:
         bar_seq.append('b-1')
 
         return bar_seq
-    
-    
-
-
 
 class MultiTrack:
     def __init__(self, bars:List[Bar]):
@@ -366,6 +390,14 @@ class MultiTrack:
             for inst_id in bar.tracks.keys():
                 all_insts.add(inst_id)
         return all_insts
+
+    @classmethod
+    def from_bars(cls, bars:List[Bar]):
+        '''
+        Create a MultiTrack object from a list of Bar objects.
+        '''
+        assert isinstance(bars, list), "bars must be a list"
+        return cls(bars=bars)
 
     @classmethod
     def from_midi(cls, midi_fp:str):
@@ -806,11 +838,4 @@ class MultiTrack:
             return ' '.join(content_seq)
         else:
             return content_seq
-    
-
-class PianoRoll:
-    def __init__(self, matrix):
-        self.matrix = matrix
-
-    @classmethod
     

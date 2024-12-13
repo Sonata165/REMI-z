@@ -1,1 +1,1 @@
-from .core import MultiTrack
+from .core import MultiTrack, Bar

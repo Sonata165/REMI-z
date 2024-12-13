@@ -3,14 +3,24 @@ import sys
 dirof = os.path.dirname
 sys.path.insert(0, dirof(dirof(__file__)))
 
-from remi_z.core import MultiTrack
+from remi_z.core import MultiTrack, Bar
 from remi_z.legacy_tokenizer import RemiTokenizer
 
 def main():
-    test_content_seq()
+    test_proll()
 
 def test_proll():
-    pass
+    multitrack = MultiTrack.from_midi('/Users/sonata/Code/REMI-z/_misc/4bros.mid')
+    
+    bar = multitrack[10]
+    proll = bar.to_piano_roll()
+    recon_bar = Bar.from_piano_roll(proll)
+    fp = '/Users/sonata/Code/REMI-z/_misc/4bros_10_recon.mid'
+    recon_bar.to_midi(fp)
+    fp = '/Users/sonata/Code/REMI-z/_misc/4bros_10.mid'
+    bar.to_midi(fp)
+
+    a = 2
 
 def test_content_seq():
     multitrack = MultiTrack.from_midi('/Users/sonata/Code/REMI-z/_misc/4bros.mid')
