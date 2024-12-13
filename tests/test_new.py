@@ -9,6 +9,9 @@ from remi_z.legacy_tokenizer import RemiTokenizer
 def main():
     test_content_seq()
 
+def test_proll():
+    pass
+
 def test_content_seq():
     multitrack = MultiTrack.from_midi('/Users/sonata/Code/REMI-z/_misc/4bros.mid')
     t = multitrack[10:11].get_content_seq(return_str=True)

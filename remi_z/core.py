@@ -5,6 +5,7 @@ sys.path.insert(0, dirof(__file__))
 
 import miditoolkit
 import pretty_midi
+import numpy as np
 from utils import read_yaml
 from typing import List, Dict, Tuple
 from midi_encoding import MidiEncoder, load_midi, fill_pos_ts_and_tempo_, convert_tempo_to_id, convert_id_to_tempo
@@ -208,6 +209,33 @@ class Bar:
         bar_seq.append('b-1')
 
         return bar_seq
+    
+    def to_piano_roll(self, of_inst=None):
+        '''
+        Convert the Bar object to a piano roll matrix.
+        '''
+        pos_per_beat = 4
+        beats_per_bar = self.time_signature[0]
+        pos_per_bar = pos_per_beat * beats_per_bar
+
+        # Create a piano roll matrix
+        piano_roll = np.zeros((pos_per_bar, 128))
+
+        # Obtain notes to be added to the piano roll
+        if of_inst:
+            assert isinstance(of_inst, int), "of_inst must be an integer"
+            assert of_inst in self.tracks, "of_inst not found in the bar"
+            notes = self.tracks[of_inst].get_all_notes()
+        else:
+            notes = self.get_all_notes(include_drum=False)
+
+        # Add notes to the piano roll
+        # NOTE: the pos in piano roll is 1/3 of note.onset
+        for note in notes:
+            onset_pos = note.onset // 3
+            dur = note.duration // 3
+            pitch = note.pitch
+            piano_roll[onset_pos, pitch] = dur
 
     def get_all_notes(self, include_drum) -> List[Note]:
         '''
@@ -220,13 +248,23 @@ class Bar:
             all_notes.extend(track.get_all_notes())
         return all_notes
     
-    def get_content_seq(self, include_drum=False):
+    def get_content_seq(self, include_drum=False, of_inst=None):
         '''
         Convert the Bar object to a content sequence.
         Including information about all notes being played
         Without instrument information.
+
+        Args:
+            include_drum: Whether to include drum tracks
+            of_inst: The instrument ID to extract the content sequence. None means all instruments.
         '''
-        notes = self.get_all_notes(include_drum=include_drum)
+        if of_inst is not None:
+            assert isinstance(of_inst, int), "of_inst must be an integer"
+            assert of_inst in self.tracks, "of_inst not found in the bar"
+            track = self.tracks[of_inst]
+            notes = track.get_all_notes()
+        else:
+            notes = self.get_all_notes(include_drum=include_drum)
         notes.sort()
 
         # Remove repeated notes with same onset and pitch
@@ -254,6 +292,9 @@ class Bar:
 
         return bar_seq
     
+    
+
+
 
 class MultiTrack:
     def __init__(self, bars:List[Bar]):
@@ -751,7 +792,7 @@ class MultiTrack:
             all_notes.extend(bar.get_all_notes())
         return all_notes
     
-    def get_content_seq(self, include_drum=False, return_str=False):
+    def get_content_seq(self, include_drum=False, of_inst=None, return_str=False):
         '''
         Convert the MultiTrack object to a content sequence.
         Including information about all notes being played
@@ -759,10 +800,17 @@ class MultiTrack:
         '''
         content_seq = []
         for bar in self.bars:
-            content_seq.extend(bar.get_content_seq(include_drum=include_drum))
+            content_seq.extend(bar.get_content_seq(include_drum=include_drum, of_inst=of_inst))
 
         if return_str:
             return ' '.join(content_seq)
         else:
             return content_seq
+    
+
+class PianoRoll:
+    def __init__(self, matrix):
+        self.matrix = matrix
+
+    @classmethod
     
