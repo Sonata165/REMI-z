@@ -342,6 +342,23 @@ class Bar:
             all_insts.add(inst_id)
         return all_insts
 
+    def get_pitch_range(self, of_insts:List[int]=None):
+        '''
+        Calculate the range of the notes in the Bar.
+        '''
+        assert isinstance(of_insts, list) or of_insts is None, "of_insts must be a list or None"
+        if of_insts is None:
+            of_insts = list(self.tracks.keys())
+
+        min_pitch = 128
+        max_pitch = -1
+        notes = self.get_all_notes(include_drum=False, of_insts=of_insts)
+        for note in notes:
+            min_pitch = min(min_pitch, note.pitch)
+            max_pitch = max(max_pitch, note.pitch)
+        pitch_range = max_pitch - min_pitch
+        return pitch_range
+
 class MultiTrack:
     def __init__(self, bars:List[Bar]):
         '''
