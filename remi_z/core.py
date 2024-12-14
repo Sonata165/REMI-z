@@ -259,10 +259,17 @@ class Bar:
         pos_per_bar = pos_per_beat * beats_per_bar
         piano_roll = np.zeros((pos_per_bar, 128), dtype=int)
 
+        # Get valid instruments
+        all_insts = self.get_unique_insts()
+        if of_insts is None:
+            insts = all_insts
+        else:
+            insts = all_insts.intersection(of_insts)
+
         # Obtain notes to be added to the piano roll
         notes = self.get_all_notes(
             include_drum=False,
-            of_insts=of_insts
+            of_insts=insts
         )
         notes.sort()
 
@@ -287,7 +294,7 @@ class Bar:
         '''
         Get all notes in the Bar.
         '''
-        assert isinstance(of_insts, list) or of_insts is None, "of_insts must be a list or None"
+        assert isinstance(of_insts, (list, set)) or of_insts is None, "of_insts must be a list or None"
         
         if of_insts is None:
             of_insts = list(self.tracks.keys())
@@ -346,7 +353,7 @@ class Bar:
         '''
         Calculate the range of the notes in the Bar.
         '''
-        assert isinstance(of_insts, list) or of_insts is None, "of_insts must be a list or None"
+        assert isinstance(of_insts, (list, set)) or of_insts is None, "of_insts must be a list or None"
         all_insts = self.get_unique_insts()
         if of_insts is None:
             insts = all_insts
@@ -356,7 +363,7 @@ class Bar:
 
         min_pitch = 128
         max_pitch = -1
-        notes = self.get_all_notes(include_drum=False, of_insts=insts)
+        notes = self.get_all_notes(include_drum=False, of_insts=list(insts))
         for note in notes:
             min_pitch = min(min_pitch, note.pitch)
             max_pitch = max(max_pitch, note.pitch)
