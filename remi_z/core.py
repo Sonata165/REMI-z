@@ -347,12 +347,16 @@ class Bar:
         Calculate the range of the notes in the Bar.
         '''
         assert isinstance(of_insts, list) or of_insts is None, "of_insts must be a list or None"
+        all_insts = self.get_unique_insts()
         if of_insts is None:
-            of_insts = list(self.tracks.keys())
+            insts = all_insts
+        else:
+            insts = all_insts.intersection(of_insts)
+
 
         min_pitch = 128
         max_pitch = -1
-        notes = self.get_all_notes(include_drum=False, of_insts=of_insts)
+        notes = self.get_all_notes(include_drum=False, of_insts=insts)
         for note in notes:
             min_pitch = min(min_pitch, note.pitch)
             max_pitch = max(max_pitch, note.pitch)
