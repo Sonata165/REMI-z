@@ -62,10 +62,21 @@ class Note:
         return self.__str__()
 
     def __lt__(self, other):
+        '''
+        When comparing two notes
+        - If the onset is different, the note with smaller onset will be placed at the front
+        - If the onset is the same, the note with higher pitch will be placed at the front
+        - If onset and pitch are same, note with longer duration will be placed at the front
+        - If onset, pitch, and duration are same, note with larger velocity will be placed at the front
+        '''
         if self.onset != other.onset:
             return self.onset < other.onset
-        else:
+        elif self.pitch != other.pitch:
             return self.pitch > other.pitch
+        elif self.duration != other.duration:
+            return self.duration > other.duration
+        else:
+            return self.velocity > other.velocity
 
 
 class Track:
@@ -236,30 +247,27 @@ class Bar:
         '''
         Convert the Bar object to a piano roll matrix.
 
-        NOTE: Always quantize the MultiTrack to 16th notes and then use this function
+        NOTE: Always first quantize the MultiTrack to 16th notes before use this function
 
         Args:
             of_insts: List of instrument IDs to be included in the piano roll. None means all instruments.
         '''
+        # Create a piano roll matrix
+        # [pos, pitch] = duration
         pos_per_beat = 4
         beats_per_bar = self.time_signature[0]
         pos_per_bar = pos_per_beat * beats_per_bar
-
-        # Create a piano roll matrix
         piano_roll = np.zeros((pos_per_bar, 128), dtype=int)
 
         # Obtain notes to be added to the piano roll
-        if of_insts and len(of_insts) > 0:
-            assert isinstance(of_insts, list), "of_insts must be a list"
-            notes = []
-            for inst_id in of_insts:
-                assert isinstance(inst_id, int), "of_inst must be an integer"
-                assert inst_id in self.tracks, "of_inst not found in the bar"
-                notes_of_inst = self.tracks[inst_id].get_all_notes()
-                notes.extend(notes_of_inst)
-        else:
-            notes = self.get_all_notes(include_drum=False)
+        notes = self.get_all_notes(
+            include_drum=False,
+            of_insts=of_insts
+        )
         notes.sort()
+
+        # Deduplicate notes
+        notes = deduplicate_notes(notes)
 
         # Add notes to the piano roll
         # NOTE: the pos in piano roll is 1/3 of note.onset
@@ -275,18 +283,25 @@ class Bar:
         mt = MultiTrack.from_bars([self])
         mt.to_midi(midi_fp)
 
-    def get_all_notes(self, include_drum=True) -> List[Note]:
+    def get_all_notes(self, include_drum=True, of_insts=None) -> List[Note]:
         '''
         Get all notes in the Bar.
         '''
+        assert isinstance(of_insts, list) or of_insts is None, "of_insts must be a list or None"
+        
+        if of_insts is None:
+            of_insts = list(self.tracks.keys())
+
         all_notes = []
-        for inst_id, track in self.tracks.items():
+        for inst_id in of_insts:
+            assert inst_id in self.tracks, f"of_inst {inst_id} not found in the bar"
+            track = self.tracks[inst_id]
             if not include_drum and track.is_drum:
                 continue
             all_notes.extend(track.get_all_notes())
         return all_notes
     
-    def get_content_seq(self, include_drum=False, of_inst=None):
+    def get_content_seq(self, include_drum=False, of_insts=None):
         '''
         Convert the Bar object to a content sequence.
         Including information about all notes being played
@@ -294,28 +309,16 @@ class Bar:
 
         Args:
             include_drum: Whether to include drum tracks
-            of_inst: The instrument ID to extract the content sequence. None means all instruments.
+            of_insts: A list of instrument IDs to extract the content sequence. None means all instruments.
         '''
-        if of_inst is not None:
-            assert isinstance(of_inst, int), "of_inst must be an integer"
-            assert of_inst in self.tracks, "of_inst not found in the bar"
-            track = self.tracks[of_inst]
-            notes = track.get_all_notes()
-        else:
-            notes = self.get_all_notes(include_drum=include_drum)
+        notes = self.get_all_notes(
+            include_drum=include_drum,
+            of_insts=of_insts
+        )
         notes.sort()
 
         # Remove repeated notes with same onset and pitch
-        notes_dedup = []
-        prev_onset = None
-        prev_pitch = None
-        for note in notes:
-            if note.onset == prev_onset and note.pitch == prev_pitch:
-                continue
-            notes_dedup.append(note)
-            prev_onset = note.onset
-            prev_pitch = note.pitch
-        notes = notes_dedup
+        notes = deduplicate_notes(notes)
 
         # Convert to content sequence (containing only o-X, p-X, d-X)
         bar_seq = []
@@ -329,6 +332,15 @@ class Bar:
         bar_seq.append('b-1')
 
         return bar_seq
+
+    def get_unique_insts(self):
+        '''
+        Get all unique instruments in the MultiTrack object.
+        '''
+        all_insts = set()
+        for inst_id in self.tracks.keys():
+            all_insts.add(inst_id)
+        return all_insts
 
 class MultiTrack:
     def __init__(self, bars:List[Bar]):
@@ -847,7 +859,7 @@ class MultiTrack:
             all_notes.extend(bar.get_all_notes(include_drum=include_drum))
         return all_notes
     
-    def get_content_seq(self, include_drum=False, of_inst=None, return_str=False):
+    def get_content_seq(self, include_drum=False, of_insts=None, return_str=False):
         '''
         Convert the MultiTrack object to a content sequence.
         Including information about all notes being played
@@ -855,10 +867,34 @@ class MultiTrack:
         '''
         content_seq = []
         for bar in self.bars:
-            content_seq.extend(bar.get_content_seq(include_drum=include_drum, of_inst=of_inst))
+            content_seq.extend(bar.get_content_seq(include_drum=include_drum, of_insts=of_insts))
 
         if return_str:
             return ' '.join(content_seq)
         else:
             return content_seq
     
+def deduplicate_notes(notes:List[Note]) -> List[Note]:
+    '''
+    Remove repeated notes with same onset and pitch.
+    NOTE: Ensure the notes are sorted before calling this function.
+
+    Args:
+        notes: List of Note objects
+
+    Returns:
+        List of Note objects with repeated notes removed
+        If note has same onset and pitch, only the first note (with longest duration) will be kept.
+        If note has same onset, pitch, and duration, only the first note (with highest velocity) will be kept.
+    '''
+    notes_dedup = []
+    prev_onset = None
+    prev_pitch = None
+    for note in notes:
+        if note.onset == prev_onset and note.pitch == prev_pitch:
+            continue
+        notes_dedup.append(note)
+        prev_onset = note.onset
+        prev_pitch = note.pitch
+    return notes_dedup
+
