@@ -232,11 +232,14 @@ class Bar:
 
         return bar_seq
     
-    def to_piano_roll(self, of_inst=None):
+    def to_piano_roll(self, of_insts: List[int]=None):
         '''
         Convert the Bar object to a piano roll matrix.
 
         NOTE: Always quantize the MultiTrack to 16th notes and then use this function
+
+        Args:
+            of_insts: List of instrument IDs to be included in the piano roll. None means all instruments.
         '''
         pos_per_beat = 4
         beats_per_bar = self.time_signature[0]
@@ -246,12 +249,17 @@ class Bar:
         piano_roll = np.zeros((pos_per_bar, 128), dtype=int)
 
         # Obtain notes to be added to the piano roll
-        if of_inst:
-            assert isinstance(of_inst, int), "of_inst must be an integer"
-            assert of_inst in self.tracks, "of_inst not found in the bar"
-            notes = self.tracks[of_inst].get_all_notes()
+        if of_insts and len(of_insts) > 0:
+            assert isinstance(of_insts, list), "of_insts must be a list"
+            notes = []
+            for inst_id in of_insts:
+                assert isinstance(inst_id, int), "of_inst must be an integer"
+                assert inst_id in self.tracks, "of_inst not found in the bar"
+                notes_of_inst = self.tracks[inst_id].get_all_notes()
+                notes.extend(notes_of_inst)
         else:
             notes = self.get_all_notes(include_drum=False)
+        notes.sort()
 
         # Add notes to the piano roll
         # NOTE: the pos in piano roll is 1/3 of note.onset
