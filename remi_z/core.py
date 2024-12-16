@@ -371,6 +371,7 @@ class Bar:
             min_pitch = min(min_pitch, note.pitch)
             max_pitch = max(max_pitch, note.pitch)
         pitch_range = max_pitch - min_pitch
+        pitch_range = int(pitch_range)
         return pitch_range
 
 class MultiTrack:
