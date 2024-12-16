@@ -106,7 +106,10 @@ class Track:
             self.avg_pitch = -1
         else:
             pitches = [note.pitch for note in self.notes]
-            self.avg_pitch = sum(pitches) / len(pitches)
+            if len(pitches) == 0:
+                self.avg_pitch = -1
+            else:
+                self.avg_pitch = sum(pitches) / len(pitches)
 
     def __str__(self) -> str:
         return f'Inst {self.inst_id}: {len(self.notes)} notes'
