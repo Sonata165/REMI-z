@@ -382,7 +382,16 @@ class MultiTrack:
             pitch_shift: The pitch shift value. None means not detected.
             is_major: The major/minor key information. None means not detected.
         '''
-        self.bars = bars 
+        self.bars = bars
+
+        # Collate time signature and tempo info
+        self.time_signatures = set()
+        self.tempos = set()
+        for bar in self.bars:
+            self.time_signatures.add(bar.time_signature)
+            self.tempos.add(bar.tempo)
+        self.time_signatures = list(self.time_signatures)
+        self.tempos = list(self.tempos)
 
         # Load the time signature dictionary
         ts_fp = os.path.join(os.path.dirname(__file__), 'dict_time_signature.yaml')
