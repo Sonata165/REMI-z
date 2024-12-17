@@ -146,7 +146,7 @@ class Track:
 
 
 class Bar:
-    def __init__(self, id, notes_of_insts:Dict[int, Dict[int, List]], time_signature=None, tempo=None):
+    def __init__(self, id, notes_of_insts:Dict[int, Dict[int, List]], time_signature:Tuple[int, int]=None, tempo:float=None):
         '''
         NOTE: The instrument with higher average pitch will be placed at the front.
         '''
@@ -914,6 +914,21 @@ class MultiTrack:
             return ' '.join(content_seq)
         else:
             return content_seq
+        
+    def insert_empty_bars_at_front(self, num_bars):
+        '''
+        Insert empty bars at the front of the MultiTrack object.
+        '''
+        assert isinstance(num_bars, int), "num_bars must be an integer"
+        assert num_bars >= 0, "num_bars must be a non-negative integer"
+
+        ts = self.bars[0].time_signature
+        tempo = self.bars[0].tempo
+
+        empty_bars = []
+        for i in range(1, num_bars+1):
+            empty_bars.insert(0, Bar(id=-i, notes_of_insts={}, time_signature=ts, tempo=tempo))
+        self.bars = empty_bars + self.bars
     
 def deduplicate_notes(notes:List[Note]) -> List[Note]:
     '''
