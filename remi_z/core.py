@@ -143,6 +143,12 @@ class Track:
         Get all notes in the Track.
         '''
         return self.notes
+    
+    def is_drum_track(self) -> bool:
+        '''
+        Check if the Track is a drum track.
+        '''
+        return self.is_drum
 
 
 class Bar:
@@ -274,7 +280,6 @@ class Bar:
             include_drum=False,
             of_insts=insts
         )
-        notes.sort()
 
         # Deduplicate notes
         notes = deduplicate_notes(notes)
@@ -295,7 +300,8 @@ class Bar:
 
     def get_all_notes(self, include_drum=True, of_insts=None) -> List[Note]:
         '''
-        Get all notes in the Bar.
+        Get all notes in the Bar 
+        NOTE: Results are sorted by onset, pitch, duration, and velocity.
         '''
         assert isinstance(of_insts, (list, set)) or of_insts is None, "of_insts must be a list or None"
         
@@ -304,11 +310,17 @@ class Bar:
 
         all_notes = []
         for inst_id in of_insts:
-            assert inst_id in self.tracks, f"of_inst {inst_id} not found in the bar"
+            if inst_id not in self.tracks:
+                continue
+            # assert inst_id in self.tracks, f"of_inst {inst_id} not found in the bar"
             track = self.tracks[inst_id]
             if not include_drum and track.is_drum:
                 continue
             all_notes.extend(track.get_all_notes())
+        
+        # Sort the notes
+        all_notes.sort()
+
         return all_notes
     
     def get_content_seq(self, include_drum=False, of_insts=None):
@@ -325,7 +337,6 @@ class Bar:
             include_drum=include_drum,
             of_insts=of_insts
         )
-        notes.sort()
 
         # Remove repeated notes with same onset and pitch
         notes = deduplicate_notes(notes)
@@ -373,6 +384,16 @@ class Bar:
         pitch_range = max_pitch - min_pitch
         pitch_range = int(pitch_range)
         return pitch_range
+    
+    def has_drum(self):
+        '''
+        Check if the Bar has drum tracks.
+        '''
+        for inst_id, track in self.tracks.items():
+            if track.is_drum_track():
+                return True
+        return False
+    
 
 class MultiTrack:
     def __init__(self, bars:List[Bar]):
@@ -891,13 +912,13 @@ class MultiTrack:
                 all_notes.extend(track.get_note_list())
         return all_notes
 
-    def get_all_notes(self, include_drum=True) -> List[Note]:
+    def get_all_notes(self, include_drum=True, of_insts:List[int]=None) -> List[Note]:
         '''
         Get all notes in the MultiTrack.
         '''
         all_notes = []
         for bar in self.bars:
-            all_notes.extend(bar.get_all_notes(include_drum=include_drum))
+            all_notes.extend(bar.get_all_notes(include_drum=include_drum, of_insts=of_insts))
         return all_notes
     
     def get_content_seq(self, include_drum=False, of_insts=None, return_str=False):
