@@ -201,7 +201,7 @@ class Bar:
             for pitch in range(piano_roll.shape[1]):
                 if piano_roll[p_pos, pitch] > 0:
                     p_dur = piano_roll[p_pos, pitch]
-                    dur = (p_dur * 3).item()
+                    dur = int((p_dur * 3).item())
                     onset = p_pos * 3
                     # note = Note(onset=onset, duration=dur, pitch=pitch)
                     note = [pitch, dur, 64] # pitch, duration, velocity
