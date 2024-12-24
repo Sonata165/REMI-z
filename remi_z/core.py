@@ -323,7 +323,7 @@ class Bar:
 
         return all_notes
     
-    def get_content_seq(self, include_drum=False, of_insts=None):
+    def get_content_seq(self, include_drum=False, of_insts=None, with_dur=True):
         '''
         Convert the Bar object to a content sequence.
         Including information about all notes being played
@@ -332,13 +332,14 @@ class Bar:
         Args:
             include_drum: Whether to include drum tracks
             of_insts: A list of instrument IDs to extract the content sequence. None means all instruments.
+            with_dur: Whether to include duration information in the content sequence.
         '''
         notes = self.get_all_notes(
             include_drum=include_drum,
             of_insts=of_insts
         )
 
-        # Remove repeated notes with same onset and pitch
+        # Remove repeated notes with same onset and pitch, keep one with largest duration
         notes = deduplicate_notes(notes)
 
         # Convert to content sequence (containing only o-X, p-X, d-X)
@@ -347,8 +348,9 @@ class Bar:
             bar_seq.extend([
                 f'o-{note.onset}',
                 f'p-{note.pitch}',
-                f'd-{note.duration}',
             ])
+            if with_dur:
+                bar_seq.append(f'd-{note.duration}')
 
         bar_seq.append('b-1')
 
@@ -409,6 +411,16 @@ class Bar:
             if inst_id in piano_ids:
                 return True
         return False
+    
+    def filter_tracks(self, insts:List[int]):
+        '''
+        Filter the tracks in the Bar object. Only keep the tracks in the insts list.
+        '''
+        new_tracks = {}
+        for inst_id in insts:
+            if inst_id in self.tracks:
+                new_tracks[inst_id] = self.tracks[inst_id]
+        self.tracks = new_tracks
     
 
 class MultiTrack:
@@ -625,6 +637,7 @@ class MultiTrack:
         for bar_id, bar_str in enumerate(bar_strs):
             bar_seq = bar_str.strip().split()
             
+            inst_id = None
             time_sig = None
             tempo = None
             need_create_note = False
@@ -653,12 +666,15 @@ class MultiTrack:
                     need_create_note = True
 
                 if need_create_note:
+                    if inst_id is None:
+                        inst_id = 0
                     if inst_id not in notes_of_instruments:
                         notes_of_instruments[inst_id] = {}
                     if pos not in notes_of_instruments[inst_id]:
                         notes_of_instruments[inst_id][pos] = []
                     notes_of_instruments[inst_id][pos].append([pitch, duration, velocity])
                     need_create_note = False
+                    # inst_id = None
             
             # Create a Bar instance
             bar_instance = Bar(
@@ -937,7 +953,7 @@ class MultiTrack:
             all_notes.extend(bar.get_all_notes(include_drum=include_drum, of_insts=of_insts))
         return all_notes
     
-    def get_content_seq(self, include_drum=False, of_insts=None, return_str=False):
+    def get_content_seq(self, include_drum=False, of_insts=None, with_dur=True, return_str=False):
         '''
         Convert the MultiTrack object to a content sequence.
         Including information about all notes being played
@@ -945,7 +961,11 @@ class MultiTrack:
         '''
         content_seq = []
         for bar in self.bars:
-            content_seq.extend(bar.get_content_seq(include_drum=include_drum, of_insts=of_insts))
+            content_seq.extend(bar.get_content_seq(
+                include_drum=include_drum, 
+                of_insts=of_insts, 
+                with_dur=with_dur
+            ))
 
         if return_str:
             return ' '.join(content_seq)
