@@ -674,7 +674,6 @@ class MultiTrack:
                         notes_of_instruments[inst_id][pos] = []
                     notes_of_instruments[inst_id][pos].append([pitch, duration, velocity])
                     need_create_note = False
-                    # inst_id = None
             
             # Create a Bar instance
             bar_instance = Bar(
