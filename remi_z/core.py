@@ -366,6 +366,8 @@ class Bar:
     def get_pitch_range(self, of_insts:List[int]=None):
         '''
         Calculate the range of the notes in the Bar.
+        Will return max_pitch - min_pitch + 1
+        If no notes found, return -1.
         '''
         assert isinstance(of_insts, (list, set)) or of_insts is None, "of_insts must be a list or None"
         all_insts = self.get_unique_insts()
@@ -375,15 +377,19 @@ class Bar:
             insts = all_insts.intersection(of_insts)
 
 
+        
+        notes = self.get_all_notes(include_drum=False, of_insts=list(insts))
+        if len(notes) == 0:
+            return -1
+        
         min_pitch = 128
         max_pitch = -1
-        notes = self.get_all_notes(include_drum=False, of_insts=list(insts))
         for note in notes:
             min_pitch = min(min_pitch, note.pitch)
             max_pitch = max(max_pitch, note.pitch)
         pitch_range = max_pitch - min_pitch
         pitch_range = int(pitch_range)
-        return pitch_range
+        return pitch_range + 1
     
     def has_drum(self):
         '''
@@ -391,6 +397,16 @@ class Bar:
         '''
         for inst_id, track in self.tracks.items():
             if track.is_drum_track():
+                return True
+        return False
+
+    def has_piano(self):
+        '''
+        Check if the Bar has any piano tracks.
+        '''
+        piano_ids = set([0, 1, 2, 3, 4, 5, 6, 7])
+        for inst_id, track in self.tracks.items():
+            if inst_id in piano_ids:
                 return True
         return False
     
