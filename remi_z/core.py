@@ -39,9 +39,9 @@ class Note:
         assert isinstance(duration, int), "duration must be an integer"
         assert isinstance(pitch, int), "pitch must be an integer"
         assert isinstance(velocity, int), "velocity must be an integer"
-        assert 0 <= onset <= 127, "onset must be in the range of [0, 127]"
-        assert 0 <= pitch <= 255, "pitch must be in the range of [0, 255]"
-        assert 0 <= velocity <= 127, "velocity must be in the range of [0, 127]"
+        assert 0 <= onset <= 127, f"onset must be in the range of [0, 127], got {onset}"
+        assert 0 <= pitch <= 255, f"pitch must be in the range of [0, 255], got {pitch}"
+        assert 0 <= velocity <= 127, f"velocity must be in the range of [0, 127], got {velocity}"
         # if is_drum:
         #     assert 128 <= pitch <= 255, "Drum pitch must be in the range of [128, 255]"
         # else:
@@ -377,8 +377,6 @@ class Bar:
             insts = all_insts
         else:
             insts = all_insts.intersection(of_insts)
-
-
         
         notes = self.get_all_notes(include_drum=False, of_insts=list(insts))
         if len(notes) == 0:
@@ -479,6 +477,10 @@ class MultiTrack:
                 else:
                     for note in track.notes:
                         note.pitch += pitch_shift
+                        
+                        # If the pitch is out of range, adjust it
+                        if note.pitch < 0:
+                            note.pitch += 12
     
     def quantize_to_16th(self):
         '''
@@ -970,6 +972,31 @@ class MultiTrack:
             return ' '.join(content_seq)
         else:
             return content_seq
+        
+    def get_pitch_range(self, return_range=False):
+        '''
+        Calculate the range of the notes in the Bar.
+        Will return max_pitch - min_pitch + 1
+        If no notes found, return -1.
+        '''
+        all_insts = self.get_unique_insts()
+        
+        notes = self.get_all_notes(include_drum=False)
+        if len(notes) == 0:
+            return -1
+        
+        min_pitch = 128
+        max_pitch = -1
+        for note in notes:
+            min_pitch = min(min_pitch, note.pitch)
+            max_pitch = max(max_pitch, note.pitch)
+        pitch_range = max_pitch - min_pitch
+        pitch_range = int(pitch_range)
+
+        if return_range:
+            return min_pitch, max_pitch
+    
+        return pitch_range + 1
         
     def insert_empty_bars_at_front(self, num_bars):
         '''

@@ -161,4 +161,6 @@ def get_pitch_shift_from_pitch_histogram(histogram, min_pitch, max_pitch):
     while pitch_shift + max_pitch > 127:
         pitch_shift -= 12
 
+    # NOTE: However, if max_pitch is too high, pitch_shift + min_pitch still < 0
+
     return pitch_shift, is_major
