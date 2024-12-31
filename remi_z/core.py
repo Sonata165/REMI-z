@@ -252,6 +252,48 @@ class Bar:
 
         return bar_seq
     
+    def to_remiplus_seq(self, with_ts=False, with_tempo=False, with_velocity=False):
+        bar_seq = []
+
+        # Add time signature
+        if with_ts:
+            # time_sig = bar.time_signature.strip()[1:-1]
+            num, den = self.time_signature
+            ts_token = TimeSignatureUtil.convert_time_signature_to_ts_token(int(num), int(den))
+            bar_seq.append(ts_token)
+
+        if with_tempo:
+            tempo_id = convert_tempo_to_id(self.tempo)
+            tempo_tok = f't-{tempo_id}'
+            bar_seq.append(tempo_tok)
+        
+        all_notes_oipd = []
+        for inst_id, track in self.tracks.items():
+            notes = track.get_all_notes()
+            
+            for note in notes:
+                if track.is_drum:
+                    pitch_id = note.pitch + 128
+                else:
+                    pitch_id = note.pitch
+
+                all_notes_oipd.append(
+                    (note.onset, inst_id, pitch_id, note.duration)
+                )
+
+        all_notes_oipd.sort()
+
+        for onset, inst_id, pitch, dur in all_notes_oipd:
+            bar_seq.extend([
+                f'o-{onset}',
+                f'i-{inst_id}',
+                f'p-{pitch}',
+                f'd-{dur}',
+            ])
+        bar_seq.append('b-1')
+
+        return bar_seq
+    
     def to_piano_roll(self, of_insts: List[int]=None):
         '''
         Convert the Bar object to a piano roll matrix.
