@@ -376,6 +376,8 @@ class Bar:
             of_insts: A list of instrument IDs to extract the content sequence. None means all instruments.
             with_dur: Whether to include duration information in the content sequence.
         '''
+        assert include_drum is False, "include_drum in content sequence is not supported yet"
+
         notes = self.get_all_notes(
             include_drum=include_drum,
             of_insts=of_insts
@@ -384,11 +386,36 @@ class Bar:
         # Remove repeated notes with same onset and pitch, keep one with largest duration
         notes = deduplicate_notes(notes)
 
+        '''
+        track_seq = [f'i-{inst_id}']
+        prev_pos = -1
+        for note in track.notes:
+            if note.onset > prev_pos:
+                track_seq.append(f'o-{note.onset}')
+                prev_pos = note.onset
+
+            if track.is_drum:
+                pitch_id = note.pitch + 128
+            else:
+                pitch_id = note.pitch
+            track_seq.extend([
+                f'p-{pitch_id}',
+                f'd-{note.duration}',
+            ])
+
+            if with_velocity:
+                track_seq.append(f'v-{note.velocity}')
+        '''
+
         # Convert to content sequence (containing only o-X, p-X, d-X)
         bar_seq = []
+        prev_pos = -1
         for note in notes:
+            if note.onset > prev_pos:
+                bar_seq.append(f'o-{note.onset}')
+                prev_pos = note.onset
+
             bar_seq.extend([
-                f'o-{note.onset}',
                 f'p-{note.pitch}',
             ])
             if with_dur:
