@@ -125,6 +125,16 @@ class Track:
         Track with higher pitch will be placed at the front (more important)
         '''
         return self.avg_pitch > other.avg_pitch
+
+    def set_inst_id(self, inst_id:int):
+        '''
+        Set the instrument ID of the Track.
+        '''
+        self.inst_id = inst_id
+        if inst_id == 128:
+            self.is_drum = True
+        else:
+            self.is_drum = False
     
     def get_note_list(self) -> List[Tuple[int, int, int, int]]:
         '''
@@ -149,6 +159,27 @@ class Track:
         Check if the Track is a drum track.
         '''
         return self.is_drum
+    
+    def merge_with(self, other):
+        '''
+        Merge the current Track with another Track.
+        '''
+        assert isinstance(other, Track), "other must be a Track object"
+        assert self.inst_id == other.inst_id, "inst_id of the two tracks must be the same"
+
+        # Merge the notes
+        self.notes.extend(other.notes)
+        self.notes.sort()
+
+        # Update the average pitch
+        if self.is_drum:
+            self.avg_pitch = -1
+        else:
+            pitches = [note.pitch for note in self.notes]
+            if len(pitches) == 0:
+                self.avg_pitch = -1
+            else:
+                self.avg_pitch = sum(pitches) / len(pitches)
 
 
 class Bar:
@@ -169,15 +200,21 @@ class Bar:
         tempo = round(tempo, 2)
 
         self.bar_id = id
-        track_list = []
-        self.tracks: Dict[int, Track] = {}
-        for inst_id, notes in notes_of_insts.items():
-            track = Track(inst_id, notes)
-            track_list.append(track)
-        track_list.sort()
-        for track in track_list:
-            inst_id = track.inst_id
-            self.tracks[inst_id] = track
+        
+        # Parse notes_of_insts
+        if notes_of_insts is not None:
+            track_list = []
+            for inst_id, notes in notes_of_insts.items():
+                track = Track(inst_id, notes)
+                track_list.append(track)
+            track_list.sort()
+
+            self.tracks: Dict[int, Track] = {}
+            for track in track_list:
+                inst_id = track.inst_id
+                self.tracks[inst_id] = track
+        else:
+            self.tracks = {}
 
         self.time_signature = time_signature
         self.tempo = tempo
@@ -191,6 +228,37 @@ class Bar:
     def __repr__(self) -> str:
         return self.__str__()
     
+    @classmethod
+    def from_tracks(cls, bar_id, track_list, time_signature=(4, 4), tempo=120.0):
+        '''
+        Create a Bar object from a list of Track objects.
+        '''
+        assert isinstance(track_list, list), "track_list must be a list"
+        # return cls(id=bar_id, notes_of_insts={track.inst_id:track.get_all_notes() for track in track_list}, time_signature=time_signature, tempo=tempo)
+    
+        if time_signature:
+            assert isinstance(time_signature, tuple), "time_signature must be a tuple"
+        else:
+            time_signature = (4, 4)
+        if tempo:
+            assert isinstance(tempo, (int, float)), "tempo must be an integer or float"
+        else:
+            tempo = 120.0
+
+        # Round tempo to 0.01
+        tempo = round(tempo, 2)
+
+        # Create an empty Bar object
+        bar = cls(id=bar_id, notes_of_insts={}, time_signature=time_signature, tempo=tempo)
+
+        # Add tracks to the Bar object
+        track_list.sort()
+        for track in track_list:
+            inst_id = track.inst_id
+            bar.tracks[inst_id] = track
+
+        return bar
+
     @classmethod
     def from_piano_roll(cls, piano_roll, time_signature=(4, 4), tempo=120.0):
         '''
@@ -213,7 +281,7 @@ class Bar:
 
         return cls(id=-1, notes_of_insts={0:notes}, time_signature=time_signature, tempo=tempo)
 
-    def to_remiz_seq(self, with_ts=False, with_tempo=False, with_velocity=False):
+    def to_remiz_seq(self, with_ts=False, with_tempo=False, with_velocity=False, include_drum=False):
         bar_seq = []
 
         # Add time signature
@@ -229,6 +297,9 @@ class Bar:
             bar_seq.append(tempo_tok)
             
         for inst_id, track in self.tracks.items():
+            if include_drum is False and track.is_drum:
+                continue
+
             track_seq = [f'i-{inst_id}']
             prev_pos = -1
             for note in track.notes:
@@ -386,27 +457,6 @@ class Bar:
         # Remove repeated notes with same onset and pitch, keep one with largest duration
         notes = deduplicate_notes(notes)
 
-        '''
-        track_seq = [f'i-{inst_id}']
-        prev_pos = -1
-        for note in track.notes:
-            if note.onset > prev_pos:
-                track_seq.append(f'o-{note.onset}')
-                prev_pos = note.onset
-
-            if track.is_drum:
-                pitch_id = note.pitch + 128
-            else:
-                pitch_id = note.pitch
-            track_seq.extend([
-                f'p-{pitch_id}',
-                f'd-{note.duration}',
-            ])
-
-            if with_velocity:
-                track_seq.append(f'v-{note.velocity}')
-        '''
-
         # Convert to content sequence (containing only o-X, p-X, d-X)
         bar_seq = []
         prev_pos = -1
@@ -425,13 +475,21 @@ class Bar:
 
         return bar_seq
 
-    def get_unique_insts(self):
+    def get_unique_insts(self, sort_by_voice=False):
         '''
         Get all unique instruments in the MultiTrack object.
         '''
-        all_insts = set()
-        for inst_id in self.tracks.keys():
-            all_insts.add(inst_id)
+        if not sort_by_voice:
+            all_insts = set()
+            for inst_id in self.tracks.keys():
+                all_insts.add(inst_id)
+        else:
+            all_insts = []
+            for inst_id, track in self.tracks.items():
+                all_insts.append((track.avg_pitch, inst_id))
+            all_insts.sort(reverse=True)
+            all_insts = [inst_id for _, inst_id in all_insts]
+
         return all_insts
 
     def get_pitch_range(self, of_insts:List[int]=None):
