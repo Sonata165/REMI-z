@@ -112,7 +112,7 @@ class Track:
                 self.avg_pitch = sum(pitches) / len(pitches)
 
     def __str__(self) -> str:
-        return f'Inst {self.inst_id}: {len(self.notes)} notes'
+        return f'Inst {self.inst_id}: {len(self.notes)} notes, avg_pitch={self.avg_pitch:.02f}'
     
     def __repr__(self) -> str:
         return self.__str__()
@@ -475,20 +475,17 @@ class Bar:
 
         return bar_seq
 
-    def get_unique_insts(self, sort_by_voice=False):
+    def get_unique_insts(self, sort_by_voice=True, include_drum=True) -> List[int]:
         '''
         Get all unique instruments in the MultiTrack object.
         '''
-        if not sort_by_voice:
-            all_insts = set()
-            for inst_id in self.tracks.keys():
-                all_insts.add(inst_id)
-        else:
-            all_insts = []
-            for inst_id, track in self.tracks.items():
-                all_insts.append((track.avg_pitch, inst_id))
-            all_insts.sort(reverse=True)
-            all_insts = [inst_id for _, inst_id in all_insts]
+        assert sort_by_voice is True, "sort_by_voice must be True"
+
+        all_insts = []
+        for inst_id in self.tracks.keys():
+            if include_drum is False and inst_id == 128:
+                continue
+            all_insts.append(inst_id)
 
         return all_insts
 
