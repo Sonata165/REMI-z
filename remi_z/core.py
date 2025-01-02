@@ -323,7 +323,7 @@ class Bar:
 
         return bar_seq
     
-    def to_remiplus_seq(self, with_ts=False, with_tempo=False, with_velocity=False):
+    def to_remiplus_seq(self, with_ts=False, with_tempo=False, with_velocity=False, include_drum=False):
         bar_seq = []
 
         # Add time signature
@@ -340,6 +340,9 @@ class Bar:
         
         all_notes_oipd = []
         for inst_id, track in self.tracks.items():
+            if include_drum is False and track.is_drum:
+                continue
+
             notes = track.get_all_notes()
             
             for note in notes:
