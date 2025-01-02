@@ -23,7 +23,7 @@ Install from source
 
     git clone https://github.com/Sonata165/REMI-z.git
     cd REMI-z
-    pip install -r requirements.txt
+    pip install -r Requirements.txt
     pip install .
 
 ## Usage
