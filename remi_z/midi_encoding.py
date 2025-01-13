@@ -92,12 +92,18 @@ class MidiEncoder(object):
             pos_info[0][3] = self.DEFAULT_TEMPO
 
         insts = midi_obj.instruments
+
+        
+
         for inst_idx, inst in enumerate(insts):
             if tracks is not None and inst_idx not in tracks:
                 continue
-            # if self.ignore_insts:
-            #     inst_id = 0
-            # else:
+
+            # Hack: if track name is "128", it is a drum track
+            # For MIDI exported from REAPER, it does not set the is_drum flag
+            if '128' in inst.name:
+                inst.is_drum = True
+
             inst_id = 128 if inst.is_drum else int(inst.program)
             notes = inst.notes
             for note in notes:

@@ -414,7 +414,7 @@ class Bar:
         mt = MultiTrack.from_bars([self])
         mt.to_midi(midi_fp)
 
-    def get_all_notes(self, include_drum=True, of_insts=None) -> List[Note]:
+    def get_all_notes(self, include_drum=True, of_insts:List[int]=None) -> List[Note]:
         '''
         Get all notes in the Bar 
         NOTE: Results are sorted by onset, pitch, duration, and velocity.
@@ -470,6 +470,42 @@ class Bar:
 
             bar_seq.extend([
                 f'p-{note.pitch}',
+            ])
+            if with_dur:
+                bar_seq.append(f'd-{note.duration}')
+
+        bar_seq.append('b-1')
+
+        return bar_seq
+
+    def get_drum_content_seq(self, with_dur=True):
+        '''
+        Convert the Bar object to a content sequence.
+        Including information about all drum notes being played
+
+        Args:
+            with_dur: Whether to include duration information in the content sequence.
+        '''
+
+        notes = self.get_all_notes(
+            include_drum=True,
+            of_insts=[128],
+        )
+
+        # Remove repeated notes with same onset and pitch, keep one with largest duration
+        notes = deduplicate_notes(notes)
+
+        # Convert to content sequence (containing only o-X, p-X, d-X)
+        bar_seq = []
+        prev_pos = -1
+        for note in notes:
+            if note.onset > prev_pos:
+                bar_seq.append(f'o-{note.onset}')
+                prev_pos = note.onset
+
+            pitch_id = note.pitch + 128
+            bar_seq.extend([
+                f'p-{pitch_id}',
             ])
             if with_dur:
                 bar_seq.append(f'd-{note.duration}')
