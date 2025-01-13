@@ -922,7 +922,8 @@ class MultiTrack:
                     instrument = miditoolkit.midi.containers.Instrument(
                         program=program,
                         is_drum=(inst_id == 128),  # 若为打击乐
-                        name=f"Instrument_{inst_id}"
+                        name=f"Instrument_{inst_id}" # Set Track name to Instrument_{inst_id} # Note CA v2 need {inst_id}
+                        # name=f"{inst_id}" # Use with Composer's Assistant
                     )
                     instrument_map[inst_id] = instrument
                     midi_obj.instruments.append(instrument)
