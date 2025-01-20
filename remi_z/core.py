@@ -554,6 +554,29 @@ class Bar:
         pitch_range = int(pitch_range)
         return pitch_range + 1
     
+    def get_melody(self, mel_def:str):
+        '''
+        Get melody notes
+        mel_def = 'hi_track': content of tarck with highest avg pitch
+        mel_def = 'hi_note': highest note of each position
+        '''
+        assert mel_def in ['hi_track', 'hi_note']
+
+        if mel_def == 'hi_track':
+            track_list = list(self.tracks.values())
+            track_list.sort()
+            melody_track = track_list[0]
+            return melody_track.get_all_notes()
+        elif mel_def == 'hi_note':
+            all_notes = self.get_all_notes(include_drum=False)
+            melody_notes = []
+            cur_pos = -1
+            for note in all_notes:
+                if note.onset != cur_pos:
+                    cur_pos = note.onset
+                    melody_notes.append(note)
+            return melody_notes
+    
     def has_drum(self):
         '''
         Check if the Bar has drum tracks.
@@ -1161,6 +1184,12 @@ class MultiTrack:
             return min_pitch, max_pitch
     
         return pitch_range + 1
+    
+    def get_melody(self, mel_def):
+        mel_notes = []
+        for bar in self.bars:
+            mel_notes.append(bar.get_melody(mel_def))
+        return mel_notes
         
     def insert_empty_bars_at_front(self, num_bars):
         '''
