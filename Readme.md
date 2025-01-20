@@ -24,7 +24,7 @@ Install from source
     git clone https://github.com/Sonata165/REMI-z.git
     cd REMI-z
     pip install -r Requirements.txt
-    pip install .
+    pip install -e .
 
 ## Usage
 Please refer to the `demo.ipynb`.
