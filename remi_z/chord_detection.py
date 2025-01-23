@@ -49,6 +49,7 @@ def main():
     exit(10)
 
 
+
 def detect_chord_from_pitch_list(note_list: List[int], return_root_name=False):
     
     """ 
