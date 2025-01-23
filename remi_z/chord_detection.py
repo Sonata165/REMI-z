@@ -42,11 +42,10 @@ def main():
     pitches = [53, 60, 64, 69]
 
     res = detect_chord_from_pitch_list(pitches, return_root_name=False)
-    print(res) # (0, 'Major')
+    print(res) # (5, 'Major7')
 
     res = detect_chord_from_pitch_list(pitches, return_root_name=True)
-    print(res) # (0, 'Major')
-    exit(10)
+    print(res) # ('F', 'Major7')
 
 
 
