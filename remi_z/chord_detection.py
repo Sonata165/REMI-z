@@ -63,6 +63,9 @@ def detect_chord_from_pitch_list(note_list: List[int], return_root_name=False):
         (root_name, chord_type) of best matching chord
         None if no chord is detected, or len(notes) < 2
     """
+    if len(note_list) < 2:
+        return None
+
     # Convert notes to integer semitones
     note_ints = set(n%12 for n in note_list)
 
