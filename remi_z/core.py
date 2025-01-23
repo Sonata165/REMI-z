@@ -11,6 +11,7 @@ from typing import List, Dict, Tuple
 from midi_encoding import MidiEncoder, load_midi, fill_pos_ts_and_tempo_, convert_tempo_to_id, convert_id_to_tempo
 from time_signature_utils import TimeSignatureUtil
 from keys_normalization import detect_key
+from chord_detection import detect_chord_from_pitch_list
 
 class Note:
     def __init__(self, onset:int, duration:int, pitch:int, velocity:int=64, is_drum=False):
@@ -576,6 +577,24 @@ class Bar:
                     cur_pos = note.onset
                     melody_notes.append(note)
             return melody_notes
+        
+    def get_chord(self):
+        '''
+        Calculate the chord of this bar
+        Return a list contains two chords, like below
+            [('C', 'Major'), ('D', 'Minor7')]
+
+        NOTE: this function only support 4/4 bars for now
+        '''
+        notes = self.get_all_notes(include_drum=False)
+        
+        p_list_1 = [note.pitch for note in notes if note.onset < 24]
+        p_list_2 = [note.pitch for note in notes if note.onset >= 24]
+
+        chord_1 = detect_chord_from_pitch_list(p_list_1, return_root_name=True)
+        chord_2 = detect_chord_from_pitch_list(p_list_2, return_root_name=True)
+        return [chord_1, chord_2]
+        
     
     def has_drum(self):
         '''
