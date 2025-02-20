@@ -540,6 +540,7 @@ class Bar:
         if of_insts is None:
             insts = all_insts
         else:
+            all_insts = set(all_insts)
             insts = all_insts.intersection(of_insts)
         
         notes = self.get_all_notes(include_drum=False, of_insts=list(insts))
