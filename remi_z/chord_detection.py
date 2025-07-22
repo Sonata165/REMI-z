@@ -17,16 +17,31 @@ note_id_to_note_name = {
 note_name_to_note_id = {v: k for k, v in note_id_to_note_name.items()}
 
 # 和弦类型定义：和弦类型名称及其相对于根音的间隔（半音数）
+# chords = {
+#     'Major': [0, 4, 7],
+#     'Minor': [0, 3, 7],
+#     'Augmented': [0, 4, 8],
+#     'Diminished': [0, 3, 6],
+#     'Major7': [0, 4, 7, 11],      # Major 7th: root, major third, perfect fifth, major seventh
+#     'Minor7': [0, 3, 7, 10],      # Minor 7th: root, minor third, perfect fifth, minor seventh
+#     'Dominant7': [0, 4, 7, 10],   # Dominant 7th: root, major third, perfect fifth, minor seventh
+#     'Sus4': [0, 5, 7],            # Suspended 4th: root, perfect fourth, perfect fifth
+#     'Sus2': [0, 2, 7]             # Suspended 2nd: root, major second, perfect fifth
+# }
+
+# Align with the guitar arranger
 chords = {
-    'Major': [0, 4, 7],
-    'Minor': [0, 3, 7],
-    'Augmented': [0, 4, 8],
-    'Diminished': [0, 3, 6],
-    'Major7': [0, 4, 7, 11],      # Major 7th: root, major third, perfect fifth, major seventh
-    'Minor7': [0, 3, 7, 10],      # Minor 7th: root, minor third, perfect fifth, minor seventh
-    'Dominant7': [0, 4, 7, 10],   # Dominant 7th: root, major third, perfect fifth, minor seventh
-    'Sus4': [0, 5, 7],            # Suspended 4th: root, perfect fourth, perfect fifth
-    'Sus2': [0, 2, 7]             # Suspended 2nd: root, major second, perfect fifth
+    '': [0, 4, 7],      # Major triad
+    'm': [0, 3, 7],     # Minor triad
+    'dim': [0, 3, 6],   # Diminished triad
+    'aug': [0, 4, 8],   # Augmented triad
+    'sus4': [0, 5, 7],  # Suspended 4th
+    'sus2': [0, 2, 7],  # Suspended 2nd
+    'M7': [0, 4, 7, 11],    # Major 7th
+    'm7': [0, 3, 7, 10],    # Minor 7th
+    '7': [0, 4, 7, 10],     # Dominant 7th
+    'o': [0, 3, 6, 9],      # Diminished 7th
+    'm7b5': [0, 3, 6, 10],  # Half-diminished 7th
 }
 
 

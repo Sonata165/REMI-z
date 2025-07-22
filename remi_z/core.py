@@ -56,6 +56,9 @@ class Note:
         self.pitch = pitch
         self.velocity = velocity
 
+    def get_note_name(self):
+        return midi_pitch_to_note_name(self.pitch)
+
     def __str__(self) -> str:
         return f'(o:{self.onset},d:{self.duration},p:{self.pitch},v:{self.velocity})'
     
@@ -79,6 +82,44 @@ class Note:
         else:
             return self.velocity > other.velocity
 
+
+class NoteSeq:
+    def __init__(self, note_list: List[Note]):
+        self.notes = note_list
+
+    def __str__(self):
+        return 'NoteSeq: [' + ' '.join([note.get_note_name() for note in self.notes]) + ']'
+    
+    def __repr__(self):
+        return self.__str__()
+    
+    def __getitem__(self, idx):
+        if isinstance(idx, int):
+            return self.notes[idx]
+        elif isinstance(idx, slice):
+            return NoteSeq(self.notes[idx])
+    
+    def get_note_name_list(self):
+        ret = [note.get_note_name() for note in self.notes]
+        return ret
+    
+    def get_pitch_range(self):
+        pitch = [note.pitch for note in self.notes]
+        l_pitch = min(pitch)
+        h_pitch = max(pitch)
+        return (l_pitch, h_pitch)
+    
+
+class ChordSeq:
+    def __init__(self, chord_list:List[Tuple[str, str]]):
+        self.chord_list = chord_list
+
+    def __str__(self):
+        return f'{self.chord_list[0][0]} {self.chord_list[0][1]} {self.chord_list[1][0]} {self.chord_list[1][1]} | '
+    
+    def __repr__(self):
+        return self.__str__()
+    
 
 class Track:
     '''
@@ -281,6 +322,7 @@ class Bar:
                     notes[onset].append(note)
 
         return cls(id=-1, notes_of_insts={0:notes}, time_signature=time_signature, tempo=tempo)
+        
 
     def to_remiz_seq(self, with_ts=False, with_tempo=False, with_velocity=False, include_drum=False):
         bar_seq = []
@@ -637,6 +679,13 @@ class MultiTrack:
         '''
         self.bars = bars
 
+        self.update_ts_and_tempo()
+
+        # Load the time signature dictionary
+        ts_fp = os.path.join(os.path.dirname(__file__), 'dict_time_signature.yaml')
+        self.ts_dict = read_yaml(ts_fp)
+
+    def update_ts_and_tempo(self):
         # Collate time signature and tempo info
         self.time_signatures = set()
         self.tempos = set()
@@ -645,10 +694,6 @@ class MultiTrack:
             self.tempos.add(bar.tempo)
         self.time_signatures = list(self.time_signatures)
         self.tempos = list(self.tempos)
-
-        # Load the time signature dictionary
-        ts_fp = os.path.join(os.path.dirname(__file__), 'dict_time_signature.yaml')
-        self.ts_dict = read_yaml(ts_fp)
 
     def __len__(self):
         return len(self.bars)
@@ -667,6 +712,19 @@ class MultiTrack:
     def __repr__(self) -> str:
         return self.__str__()
     
+    def set_tempo(self, tempo:float):
+        '''
+        Set the tempo for all bars in the MultiTrack object.
+        '''
+        assert isinstance(tempo, (int, float)), "tempo must be an integer or float"
+        tempo = round(tempo, 2)
+        for bar in self.bars:
+            bar.tempo = tempo
+            # Update the tempo in the tempo set
+            if tempo not in self.tempos:
+                self.tempos.append(tempo)
+        self.update_ts_and_tempo()
+    
     def normalize_pitch(self):
         '''
         Normalize the pitch of all notes in the MultiTrack object.
@@ -674,6 +732,24 @@ class MultiTrack:
 
         ''' Detect major/minor key and pitch shift needed for the key normalization '''
         is_major, pitch_shift = self.detect_key()
+
+        ''' Apply the pitch shift to the notes '''
+        for bar in self.bars:
+            for inst_id, track in bar.tracks.items():
+                if track.is_drum:
+                    continue
+                else:
+                    for note in track.notes:
+                        note.pitch += pitch_shift
+                        
+                        # If the pitch is out of range, adjust it
+                        if note.pitch < 0:
+                            note.pitch += 12
+
+    def shift_pitch(self, pitch_shift):
+        '''
+        Shift pitch for all notes
+        '''
 
         ''' Apply the pitch shift to the notes '''
         for bar in self.bars:
@@ -1161,6 +1237,15 @@ class MultiTrack:
             all_notes.extend(bar.get_all_notes(include_drum=include_drum, of_insts=of_insts))
         return all_notes
     
+    def get_all_notes_by_bar(self, include_drum=True, of_insts:List[int]=None) -> List[List[Note]]:
+        '''
+        Get all notes in the MultiTrack.
+        '''
+        all_notes = []
+        for bar in self.bars:
+            all_notes.append(bar.get_all_notes(include_drum=include_drum, of_insts=of_insts))
+        return all_notes
+    
     def get_content_seq(self, include_drum=False, of_insts=None, with_dur=True, return_str=False):
         '''
         Convert the MultiTrack object to a content sequence.
@@ -1250,3 +1335,16 @@ def deduplicate_notes(notes:List[Note]) -> List[Note]:
         prev_pitch = note.pitch
     return notes_dedup
 
+def midi_pitch_to_note_name(pitch: int) -> str:
+    """
+    Convert a MIDI pitch number (0–127) to a note name string like 'C4'.
+    """
+    if not (0 <= pitch <= 127):
+        raise ValueError("MIDI pitch must be between 0 and 127")
+    
+    note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 
+                  'F#', 'G', 'G#', 'A', 'A#', 'B']
+    
+    note = note_names[pitch % 12]
+    octave = (pitch // 12) - 1  # MIDI note 0 is C-1
+    return f"{note}{octave}"
