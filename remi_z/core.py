@@ -104,6 +104,18 @@ class NoteSeq:
         return ret
     
     def get_pitch_range(self):
+        '''
+        Return the pitch range of the NoteSeq object.
+        In format of (lowest_pitch, highest_pitch)
+
+        When there are note notes in the NoteSeq, return None.
+        '''
+        if len(self.notes) == 0:
+            return None
+        if len(self.notes) == 1:
+            return (self.notes[0].pitch, self.notes[0].pitch)
+        
+
         pitch = [note.pitch for note in self.notes]
         l_pitch = min(pitch)
         h_pitch = max(pitch)
@@ -153,6 +165,32 @@ class Track:
             else:
                 self.avg_pitch = sum(pitches) / len(pitches)
 
+    @classmethod
+    def from_note_list(cls, inst_id:int, note_list:List[Note]):
+        '''
+        Create a Track object from a list of Note objects.
+        '''
+        assert isinstance(note_list, list), "note_list must be a list"
+
+        ret = cls(inst_id=inst_id, notes={})
+        ret.notes = note_list
+        ret.notes.sort()
+        ret.inst_id = inst_id
+        ret.non_empty_pos = list(set([note.onset for note in note_list]))
+        ret.non_empty_pos.sort()
+
+        # Calculate the average pitch
+        if ret.is_drum:
+            ret.avg_pitch = -1
+        else:
+            pitches = [note.pitch for note in ret.notes]
+            if len(pitches) == 0:
+                ret.avg_pitch = -1
+            else:
+                ret.avg_pitch = sum(pitches) / len(pitches)
+            
+        return ret
+
     def __str__(self) -> str:
         return f'Inst {self.inst_id}: {len(self.notes)} notes, avg_pitch={self.avg_pitch:.02f}'
     
@@ -189,6 +227,13 @@ class Track:
         for note in self.notes:
             all_notes.append((note.onset, note.pitch, note.duration, note.velocity))
         return all_notes
+    
+    def get_avg_pitch(self) -> float:
+        '''
+        Get the average pitch of the Track.
+        If the Track is a drum track, return -1.
+        '''
+        return self.avg_pitch
     
     def get_all_notes(self) -> List[Note]:
         '''
@@ -322,7 +367,26 @@ class Bar:
                     notes[onset].append(note)
 
         return cls(id=-1, notes_of_insts={0:notes}, time_signature=time_signature, tempo=tempo)
-        
+
+    def flatten(self) -> 'Bar':
+        '''
+        Flatten all tracks into a same one
+        Save to a new Bar object.
+        Remove drum tracks.
+        '''        
+        assert len(self.tracks) > 0, "Bar has no tracks to flatten"
+        all_notes = self.get_all_notes(include_drum=False, deduplicate=True)
+
+        track = Track.from_note_list(inst_id=0, note_list=all_notes)
+
+        # Create a new Bar object with a single track
+        new_bar = Bar.from_tracks(
+            bar_id=self.bar_id,
+            track_list=[track],
+            time_signature=self.time_signature,
+            tempo=self.tempo
+        )
+        return new_bar
 
     def to_remiz_seq(self, with_ts=False, with_tempo=False, with_velocity=False, include_drum=False):
         bar_seq = []
@@ -457,7 +521,7 @@ class Bar:
         mt = MultiTrack.from_bars([self])
         mt.to_midi(midi_fp)
 
-    def get_all_notes(self, include_drum=True, of_insts:List[int]=None) -> List[Note]:
+    def get_all_notes(self, include_drum=True, of_insts:List[int]=None, deduplicate=False) -> List[Note]:
         '''
         Get all notes in the Bar 
         NOTE: Results are sorted by onset, pitch, duration, and velocity.
@@ -479,6 +543,10 @@ class Bar:
         
         # Sort the notes
         all_notes.sort()
+
+        if deduplicate:
+            # Remove repeated notes with same onset and pitch, keep one with largest duration
+            all_notes = deduplicate_notes(all_notes)
 
         return all_notes
     
@@ -598,7 +666,7 @@ class Bar:
         pitch_range = int(pitch_range)
         return pitch_range + 1
     
-    def get_melody(self, mel_def:str):
+    def get_melody(self, mel_def:str) -> List[Note]:
         '''
         Get melody notes
         mel_def = 'hi_track': content of tarck with highest avg pitch
@@ -806,6 +874,27 @@ class MultiTrack:
         Create a MultiTrack object from a list of Bar objects.
         '''
         assert isinstance(bars, list), "bars must be a list"
+        return cls(bars=bars)
+
+    @classmethod
+    def from_note_seqs(cls, note_seq:List[NoteSeq], program_id:int=0):
+        '''
+        Create a MultiTrack object from a list of NoteSeq objects.
+        Each NoteSeq will be converted to a Bar with a single instrument.
+        '''
+        assert isinstance(note_seq, list), "note_seq must be a list"
+        assert len(note_seq) > 0, "note_seq must not be empty"
+        assert isinstance(program_id, int), "program_id must be an integer"
+        assert 0 <= program_id <= 127, "program_id must be in the range of [0, 127]"
+
+        # Create a list of Bar objects
+        bars = []
+        for bar_id, seq in enumerate(note_seq):
+            assert isinstance(seq, NoteSeq), "note_seq must be a list of NoteSeq objects"
+            notes_of_insts = {program_id: {note.onset: [[note.pitch, note.duration, note.velocity]] for note in seq.notes}}
+            bar = Bar(id=bar_id, notes_of_insts=notes_of_insts)
+            bars.append(bar)
+        
         return cls(bars=bars)
 
     @classmethod
@@ -1228,6 +1317,28 @@ class MultiTrack:
                 all_notes.extend(track.get_note_list())
         return all_notes
 
+    def flatten(self) -> "MultiTrack":
+        '''
+        Flatten the content of MultiTrack object to a single track, but still save to a MultiTrack object.
+        Keep all info the same, such as bars, time signature, tempo, etc.
+        Remove drum tracks, if any.
+        
+        This will merge all tracks into a single track.
+        '''
+        assert len(self.bars) > 0, "MultiTrack must have at least one bar"
+        
+        new_bars = []
+        for bar in self.bars:
+            t = bar.flatten()
+            new_bars.append(t)
+            # for inst_id, track in bar.tracks.items():
+            #     if inst_id not in merged_bar.tracks:
+            #         merged_bar.tracks[inst_id] = track
+            #     else:
+            #         merged_bar.tracks[inst_id].notes.extend(track.notes)
+        
+        return MultiTrack(bars=new_bars)
+
     def get_all_notes(self, include_drum=True, of_insts:List[int]=None) -> List[Note]:
         '''
         Get all notes in the MultiTrack.
@@ -1290,7 +1401,48 @@ class MultiTrack:
     
         return pitch_range + 1
     
+    def get_melody_of_song(self, mel_def:str) -> List[List[Note]]:
+        '''
+        Get melody notes for the entire MultiTrack object.
+        NOTE: This algorithm calculate melody for each bar independently.
+
+        hi_track: The track with the highest average pitch.
+        
+        '''
+        assert mel_def in ['hi_track'], "mel_def must be 'hi_track'"
+        
+        # Collate the average pitch of each track from all bars
+        track_avg_pitches = {}
+        for bar in self.bars:
+            for inst_id, track in bar.tracks.items():
+                if track.is_drum:
+                    continue
+                avg_pitch = track.get_avg_pitch()
+                if inst_id not in track_avg_pitches:
+                    track_avg_pitches[inst_id] = []
+                track_avg_pitches[inst_id].append(avg_pitch)
+        # Calculate the average pitch for each track
+        for inst_id in track_avg_pitches:
+            avg_pitch = sum(track_avg_pitches[inst_id]) / len(track_avg_pitches[inst_id])
+            track_avg_pitches[inst_id] = avg_pitch
+        # Sort the tracks by average pitch
+        sorted_tracks = sorted(track_avg_pitches.items(), key=lambda x: x[1], reverse=True)
+        # Get the track with the highest average pitch
+        highest_track_id = sorted_tracks[0][0]
+        
+        # Get the melody notes from the highest track, from each bar
+        mel_notes = []
+        for bar in self.bars:
+            if highest_track_id in bar.tracks:
+                mel_track = bar.tracks[highest_track_id]
+                mel_notes.append(mel_track.get_all_notes())
+
+        return mel_notes
+
     def get_melody(self, mel_def):
+        '''
+        NOTE: This algorithm calculate melody for each bar independently.
+        '''
         mel_notes = []
         for bar in self.bars:
             mel_notes.append(bar.get_melody(mel_def))
@@ -1311,6 +1463,7 @@ class MultiTrack:
             empty_bars.insert(0, Bar(id=-i, notes_of_insts={}, time_signature=ts, tempo=tempo))
         self.bars = empty_bars + self.bars
     
+
 def deduplicate_notes(notes:List[Note]) -> List[Note]:
     '''
     Remove repeated notes with same onset and pitch.
@@ -1335,6 +1488,7 @@ def deduplicate_notes(notes:List[Note]) -> List[Note]:
         prev_pitch = note.pitch
     return notes_dedup
 
+
 def midi_pitch_to_note_name(pitch: int) -> str:
     """
     Convert a MIDI pitch number (0–127) to a note name string like 'C4'.
@@ -1348,3 +1502,22 @@ def midi_pitch_to_note_name(pitch: int) -> str:
     note = note_names[pitch % 12]
     octave = (pitch // 12) - 1  # MIDI note 0 is C-1
     return f"{note}{octave}"
+
+def note_name_to_midi_pitch(note_name: str) -> int:
+    """
+    Convert a note name string like 'C4' or 'F#3' to a MIDI pitch number (0–127).
+    """
+    note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 
+                  'F#', 'G', 'G#', 'A', 'A#', 'B']
+    import re
+    match = re.match(r'^([A-G]#?)(-?\d+)$', note_name)
+    if not match:
+        raise ValueError(f"Invalid note name: {note_name}")
+    note, octave = match.groups()
+    if note not in note_names:
+        raise ValueError(f"Invalid note name: {note_name}")
+    octave = int(octave)
+    pitch = note_names.index(note) + (octave + 1) * 12
+    if not (0 <= pitch <= 127):
+        raise ValueError("Resulting MIDI pitch must be between 0 and 127")
+    return pitch
