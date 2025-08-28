@@ -60,7 +60,7 @@ class Note:
         return midi_pitch_to_note_name(self.pitch)
 
     def __str__(self) -> str:
-        return f'(o:{self.onset},d:{self.duration},p:{self.pitch},v:{self.velocity})'
+        return f'(o:{self.onset},p:{self.pitch},d:{self.duration},v:{self.velocity})'
     
     def __repr__(self) -> str:
         return self.__str__()
@@ -694,6 +694,7 @@ class Bar:
         Calculate the chord of this bar
         Return a list contains two chords, like below
             [('C', 'Major'), ('D', 'Minor7')]
+        If no notes inside, return [None, None]
 
         NOTE: this function only support 4/4 bars for now
         '''
@@ -1436,6 +1437,8 @@ class MultiTrack:
             if highest_track_id in bar.tracks:
                 mel_track = bar.tracks[highest_track_id]
                 mel_notes.append(mel_track.get_all_notes())
+            else:
+                mel_notes.append([])
 
         return mel_notes
 
