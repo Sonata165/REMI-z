@@ -137,8 +137,9 @@ class Track:
     '''
     This class save all notes for a same track within a bar.
     '''
-    def __init__(self, inst_id, notes:Dict[int, List[Note]]):
+    def __init__(self, inst_id, notes:Dict[int, List[Note]], track_id=None):
         self.inst_id = inst_id
+        self.track_id = track_id
         self.non_empty_pos = list(notes.keys())
         self.non_empty_pos.sort()
 
@@ -270,7 +271,12 @@ class Track:
 
 
 class Bar:
-    def __init__(self, id, notes_of_insts:Dict[int, Dict[int, List]], time_signature:Tuple[int, int]=None, tempo:float=None):
+    def __init__(self, 
+                 id, 
+                 notes_of_insts:Dict[int, Dict[int, List]], 
+                 time_signature:Tuple[int, int]=None, 
+                 tempo:float=None
+                 ):
         '''
         NOTE: The instrument with higher average pitch will be placed at the front.
         '''
@@ -292,14 +298,21 @@ class Bar:
         if notes_of_insts is not None:
             track_list = []
             for inst_id, notes in notes_of_insts.items():
-                track = Track(inst_id, notes)
+                if isinstance(inst_id, int):
+                    prog_id = inst_id
+                    track_id = inst_id
+                elif isinstance(inst_id, tuple):
+                    assert len(inst_id) == 2, "inst_id tuple must have length 2"
+                    prog_id, track_id = inst_id
+                track = Track(prog_id, notes, track_id)
                 track_list.append(track)
             track_list.sort()
 
             self.tracks: Dict[int, Track] = {}
             for track in track_list:
-                inst_id = track.inst_id
-                self.tracks[inst_id] = track
+                # inst_id = track.inst_id
+                track_id = track.track_id
+                self.tracks[track_id] = track
         else:
             self.tracks = {}
 
@@ -899,7 +912,7 @@ class MultiTrack:
         return cls(bars=bars)
 
     @classmethod
-    def from_midi(cls, midi_fp:str):
+    def from_midi(cls, midi_fp:str, support_same_program_multi_instance=False):
         '''
         Create a MultiTrack object from a MIDI file.
         '''
@@ -915,7 +928,8 @@ class MultiTrack:
             trunc_pos=None, 
             tracks=None, 
             remove_same_notes=False, 
-            end_offset=0
+            end_offset=0,
+            multi_instance_same_program_support=support_same_program_multi_instance, # support multiple instances of the same program ID
         )
         # bar: every pos
         # ts: only at pos where it changes, otherwise None
@@ -946,17 +960,17 @@ class MultiTrack:
             
             # Determine if this is a new bar
             if bar_id > bar_id_prev_pos:
-                notes_of_instruments = {}
+                notes_of_tracks = {}
 
             # Add the note info
             if insts_notes is not None:
                 for inst_id, notes in insts_notes.items():
                     # each note contain [pitch, duration, velocity]
-                    if inst_id not in notes_of_instruments:
-                        notes_of_instruments[inst_id] = {}
-                    if pos not in notes_of_instruments[inst_id]:
-                        notes_of_instruments[inst_id][pos] = []
-                    notes_of_instruments[inst_id][pos].extend(notes)
+                    if inst_id not in notes_of_tracks:
+                        notes_of_tracks[inst_id] = {}
+                    if pos not in notes_of_tracks[inst_id]:
+                        notes_of_tracks[inst_id][pos] = []
+                    notes_of_tracks[inst_id][pos].extend(notes)
 
             # Determine if this is the last position of a bar
             last_pos_of_bar = False
@@ -971,7 +985,7 @@ class MultiTrack:
             if last_pos_of_bar:
                 bar_instance = Bar(
                     id=bar_id, 
-                    notes_of_insts=notes_of_instruments,
+                    notes_of_insts=notes_of_tracks,
                     time_signature=cur_ts,
                     tempo=cur_tempo,
                 )
@@ -1158,22 +1172,23 @@ class MultiTrack:
             bar_length_ticks = int(beats_per_bar * ticks_per_beat)
 
             # 为当前小节中的音符计算相对时间（转换为ticks）
-            for inst_id, track in bar.tracks.items():
+            for track_id, track in bar.tracks.items():
                 # 获取或创建Instrument
-                if inst_id not in instrument_map:
-                    program = 0 if inst_id == 128 else inst_id
+                if track_id not in instrument_map:
+                    prog_id = track.inst_id
+                    program = 0 if prog_id == 128 else prog_id
                     # 创建乐器（Instrument）
                     # miditoolkit不强制要求不同instrument_id映射到特定音色，你可以根据实际需要调整program值。
                     instrument = miditoolkit.midi.containers.Instrument(
                         program=program,
-                        is_drum=(inst_id == 128),  # 若为打击乐
-                        name=f"Instrument_{inst_id}" # Set Track name to Instrument_{inst_id} # Note CA v2 need {inst_id}
+                        is_drum=(prog_id == 128),  # 若为打击乐
+                        name=f"Instrument_{prog_id}" # Set Track name to Instrument_{inst_id} # Note CA v2 need {inst_id}
                         # name=f"{inst_id}" # Use with Composer's Assistant
                     )
-                    instrument_map[inst_id] = instrument
+                    instrument_map[track_id] = instrument
                     midi_obj.instruments.append(instrument)
                 else:
-                    instrument = instrument_map[inst_id]
+                    instrument = instrument_map[track_id]
 
                 for note in track.notes:
                     # onset和duration是以某种beats为单位（如之前为12分音符换算）

@@ -32,7 +32,14 @@ class MidiEncoder(object):
                     break
         return numerator, denominator
 
-    def collect_pos_info(self, midi_obj, trunc_pos=None, tracks=None, remove_same_notes=False, end_offset=0):
+    def collect_pos_info(self, 
+                         midi_obj, 
+                         trunc_pos=None, 
+                         tracks=None, 
+                         remove_same_notes=False, 
+                         end_offset=0,
+                         multi_instance_same_program_support=False,
+):
         if tracks is not None:
             from collections.abc import Iterable
             assert isinstance(tracks, (int, Iterable))
@@ -104,7 +111,136 @@ class MidiEncoder(object):
             if '128' in inst.name:
                 inst.is_drum = True
 
-            inst_id = 128 if inst.is_drum else int(inst.program)
+            prog_id = 128 if inst.is_drum else int(inst.program)
+
+            if multi_instance_same_program_support is False:
+                inst_id = prog_id
+            else:
+                inst_id = (prog_id, inst_idx)
+
+            notes = inst.notes
+            for note in notes:
+                pitch = int(note.pitch)
+                velocity = int(note.velocity)
+                start_time = int(note.start)
+                end_time = int(note.end + end_offset)
+                # assert end_time > start_time
+                if end_time < start_time:
+                    print('Warning: end_time < start_time')
+                pos_start = self.time_to_pos(start_time, midi_obj.ticks_per_beat)
+                pos_end = self.time_to_pos(end_time, midi_obj.ticks_per_beat)
+                duration = pos_end - pos_start
+
+                if pos_info[pos_start][4] is None:
+                    pos_info[pos_start][4] = dict()
+                if inst_id not in pos_info[pos_start][4]:
+                    pos_info[pos_start][4][inst_id] = []
+                note_info = [pitch, duration, velocity]
+                if remove_same_notes:
+                    if note_info in pos_info[pos_start][4][inst_id]:
+                        continue
+                pos_info[pos_start][4][inst_id].append([pitch, duration, velocity])
+
+        cnt = 0
+        bar = 0
+        measure_length = None
+        ts = self.DEFAULT_TS  # default MIDI time signature
+        for j in range(max_pos):
+            now_ts = pos_info[j][1]
+            if now_ts is not None:
+                if now_ts != ts:
+                    ts = now_ts
+            if cnt == 0:
+                beat_note_factor = 4
+                pos_resolution = 12
+                measure_length = ts[0] * beat_note_factor * pos_resolution // ts[1]
+            pos_info[j][0] = bar
+            pos_info[j][2] = cnt
+            cnt += 1
+            if cnt >= measure_length:
+                assert cnt == measure_length, 'invalid time signature change: pos = {}'.format(j)
+                cnt = 0
+                bar += 1
+
+        return pos_info
+    
+    def collect_pos_info_new(self, midi_obj, trunc_pos=None, tracks=None, remove_same_notes=False, end_offset=0):
+        '''
+        New version of collect_pos_info, support multi-instance of same program id.
+        '''
+        if tracks is not None:
+            from collections.abc import Iterable
+            assert isinstance(tracks, (int, Iterable))
+            if isinstance(tracks, str):
+                tracks = int(tracks)
+            if isinstance(tracks, int):
+                if tracks < 0:
+                    tracks = len(midi_obj.instruments) + tracks
+                tracks = (tracks,)
+
+        max_pos = 0
+        for inst in midi_obj.instruments:
+            for note in inst.notes:
+                pos = self.time_to_pos(note.start, midi_obj.ticks_per_beat)
+                max_pos = max(max_pos, pos)
+        max_pos = max_pos + 1  # 最大global position
+        if trunc_pos is not None:
+            max_pos = min(max_pos, trunc_pos)
+
+        pos_info = [
+            [None, None, None, None, None]  # (bar, ts, local_pos, tempo, insts_notes)
+            for _ in range(max_pos)
+        ]
+        pos_info: typing.List
+        # bar: every pos
+        # ts: only at pos where it changes, otherwise None
+        # local_pos: every pos
+        # tempo: only at pos where it changes, otherwise None
+        # insts_notes: only at pos where the note starts, otherwise None
+
+        ts_changes = midi_obj.time_signature_changes
+        zero_pos_ts_change = False
+        for ts_change in ts_changes:
+            pos = self.time_to_pos(ts_change.time, midi_obj.ticks_per_beat)
+            if pos >= max_pos:
+                continue
+            if pos == 0:
+                zero_pos_ts_change = True
+            ts_numerator = int(ts_change.numerator)
+            ts_denominator = int(ts_change.denominator)
+            
+            ts_numerator, ts_denominator = self.reduce_time_signature(ts_numerator, ts_denominator)
+            pos_info[pos][1] = (ts_numerator, ts_denominator)
+        if not zero_pos_ts_change:
+            pos_info[0][1] = self.DEFAULT_TS
+
+        tempo_changes = midi_obj.tempo_changes
+        zero_pos_tempo_change = False
+        for tempo_change in tempo_changes:
+            pos = self.time_to_pos(tempo_change.time, midi_obj.ticks_per_beat)
+            if pos >= max_pos:
+                continue
+            if pos == 0:
+                zero_pos_tempo_change = True
+            pos_info[pos][3] = tempo_change.tempo
+        if not zero_pos_tempo_change:
+            pos_info[0][3] = self.DEFAULT_TEMPO
+
+        insts = midi_obj.instruments
+
+        for inst_idx, inst in enumerate(insts):
+            if tracks is not None and inst_idx not in tracks:
+                continue
+
+            # Hack: if track name is "128", it is a drum track
+            # For MIDI exported from REAPER, it does not set the is_drum flag
+            if '128' in inst.name:
+                inst.is_drum = True
+
+            prog_id = 128 if inst.is_drum else int(inst.program)
+
+            inst_id = (prog_id, inst_idx)  # use (program, track_idx) as instance id
+
             notes = inst.notes
             for note in notes:
                 pitch = int(note.pitch)
@@ -187,6 +323,7 @@ def load_midi(file_path=None, file=None, midi_checker='default'):
         midi_checker(midi_obj)
 
     return midi_obj
+
 
 def default_check_midi(midi_obj):
     # check abnormal values in parse result
