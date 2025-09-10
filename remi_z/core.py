@@ -310,7 +310,6 @@ class Bar:
 
             self.tracks: Dict[int, Track] = {}
             for track in track_list:
-                # inst_id = track.inst_id
                 track_id = track.track_id
                 self.tracks[track_id] = track
         else:
@@ -360,17 +359,19 @@ class Bar:
         return bar
 
     @classmethod
-    def from_piano_roll(cls, piano_roll, time_signature=(4, 4), tempo=120.0):
+    def from_piano_roll(cls, piano_roll, pos_per_bar=16, time_signature=(4, 4), tempo=120.0):
         '''
         Convert the Bar object to a piano roll matrix.
         '''
+        coeff = 48 // pos_per_bar
+
         notes = {}
         for p_pos in range(piano_roll.shape[0]):
             for pitch in range(piano_roll.shape[1]):
                 if piano_roll[p_pos, pitch] > 0:
                     p_dur = piano_roll[p_pos, pitch]
-                    dur = int((p_dur * 3).item())
-                    onset = p_pos * 3
+                    dur = int((p_dur * coeff).item())
+                    onset = p_pos * coeff
                     # note = Note(onset=onset, duration=dur, pitch=pitch)
                     note = [pitch, dur, 64] # pitch, duration, velocity
 
@@ -488,7 +489,7 @@ class Bar:
 
         return bar_seq
     
-    def to_piano_roll(self, of_insts: List[int]=None):
+    def to_piano_roll(self, of_insts: List[int]=None, pos_per_bar=16):
         '''
         Convert the Bar object to a piano roll matrix.
 
@@ -499,10 +500,13 @@ class Bar:
         '''
         # Create a piano roll matrix
         # [pos, pitch] = duration
-        pos_per_beat = 4
+        n_pitch = 128
+        coeff = 48 / pos_per_bar
+        
+        pos_per_beat = pos_per_bar // 4
         beats_per_bar = self.time_signature[0]
         pos_per_bar = pos_per_beat * beats_per_bar
-        piano_roll = np.zeros((pos_per_bar, 128), dtype=int)
+        piano_roll = np.zeros((pos_per_bar, n_pitch), dtype=int)
 
         # Get valid instruments
         all_insts = self.get_unique_insts()
@@ -523,8 +527,8 @@ class Bar:
         # Add notes to the piano roll
         # NOTE: the pos in piano roll is 1/3 of note.onset
         for note in notes:
-            onset_pos = min(round(note.onset / 3), pos_per_bar - 1)
-            dur = round(note.duration / 3)
+            onset_pos = min(round(note.onset / coeff), pos_per_bar - 1)
+            dur = round(note.duration / coeff)
             pitch = note.pitch
             piano_roll[onset_pos, pitch] = dur
 
@@ -802,9 +806,8 @@ class MultiTrack:
         tempo = round(tempo, 2)
         for bar in self.bars:
             bar.tempo = tempo
-            # Update the tempo in the tempo set
-            if tempo not in self.tempos:
-                self.tempos.append(tempo)
+
+        # Update the tempo in the tempo set
         self.update_ts_and_tempo()
     
     def normalize_pitch(self):
@@ -1481,6 +1484,29 @@ class MultiTrack:
             empty_bars.insert(0, Bar(id=-i, notes_of_insts={}, time_signature=ts, tempo=tempo))
         self.bars = empty_bars + self.bars
     
+    def merge_with(self, other:"MultiTrack", other_prog_id) -> "MultiTrack":
+        '''
+        Merge two MultiTrack objects.
+        Both MultiTrack objects must have the same number of bars, time signature, and tempo.
+        '''
+        assert isinstance(other, MultiTrack), "other must be a MultiTrack object"
+        assert len(self.bars) == len(other.bars), "Both MultiTrack objects must have the same number of bars"
+
+        new_bars = []
+        for bar1, bar2 in zip(self.bars, other.bars):
+            # Merge the two bars
+            merged_bar = Bar(id=bar1.bar_id, notes_of_insts={}, time_signature=bar1.time_signature, tempo=bar1.tempo)
+            for inst_id, track in bar1.tracks.items():
+                merged_bar.tracks[inst_id] = track
+            for inst_id, track in bar2.tracks.items():
+                track.set_inst_id(other_prog_id)
+                if other_prog_id not in merged_bar.tracks:
+                    merged_bar.tracks[other_prog_id] = track
+                else:
+                    merged_bar.tracks[other_prog_id].notes.extend(track.notes)
+            new_bars.append(merged_bar)
+        
+        return MultiTrack(bars=new_bars)
 
 def deduplicate_notes(notes:List[Note]) -> List[Note]:
     '''
