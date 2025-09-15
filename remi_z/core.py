@@ -489,7 +489,7 @@ class Bar:
 
         return bar_seq
     
-    def to_piano_roll(self, of_insts: List[int]=None, pos_per_bar=16):
+    def to_piano_roll(self, of_insts: List[int]=None, pos_per_bar=16) -> np.ndarray:
         '''
         Convert the Bar object to a piano roll matrix.
 

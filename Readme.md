@@ -33,4 +33,4 @@ Please refer to the `demo.ipynb`.
 - [2025-09-09] Support reading and writing MIDIs containing multiple tracks of same program ID.
 
 ## Known issues
-- Create MultiTrack object from REMI-z sequence does not yet support multiple tracks of same program ID.
+- Create MultiTrack object from REMI-z sequence does not yet support multiple tracks of same program ID. 
