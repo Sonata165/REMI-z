@@ -1014,7 +1014,9 @@ class MultiTrack:
         Create a MultiTrack object from a remiz string.
         '''
         assert isinstance(remiz_str, str), "remiz_str must be a string"
-        assert 'b-1' in remiz_str, "remiz_str must contain at least one bar"
+        if 'b-1' not in remiz_str:
+            print('WARNING: remiz_str does not contain any bar information. Adding a bar at the end.')
+            remiz_str += ' b-1'
         if 'v' in remiz_str:
             with_velocity = True
         else:
