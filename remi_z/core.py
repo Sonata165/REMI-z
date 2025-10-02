@@ -1035,6 +1035,9 @@ class MultiTrack:
             tempo = None
             need_create_note = False
             notes_of_instruments = {}
+            pitch = None
+            duration = None
+            velocity = None
             for tok in bar_seq:
                 if tok.startswith('s-'):
                     time_sig = TimeSignatureUtil.convert_time_signature_token_to_tuple(tok)
@@ -1059,14 +1062,25 @@ class MultiTrack:
                     need_create_note = True
 
                 if need_create_note:
-                    if inst_id is None:
-                        inst_id = 0
-                    if inst_id not in notes_of_instruments:
-                        notes_of_instruments[inst_id] = {}
-                    if pos not in notes_of_instruments[inst_id]:
-                        notes_of_instruments[inst_id][pos] = []
-                    notes_of_instruments[inst_id][pos].append([pitch, duration, velocity])
+                    # Create the note for the current instrument and position, 
+                    # If pitch, duration, velocity are all not None
+                    if pitch is None or duration is None or velocity is None:
+                        pass
+                    else:
+                        if inst_id is None:
+                            inst_id = 0
+                        if inst_id not in notes_of_instruments:
+                            notes_of_instruments[inst_id] = {}
+                        if pos not in notes_of_instruments[inst_id]:
+                            notes_of_instruments[inst_id][pos] = []
+                        notes_of_instruments[inst_id][pos].append([pitch, duration, velocity])
+                    
                     need_create_note = False
+
+                    pitch = None
+                    duration = None
+                    velocity = None
+
             
             # Create a Bar instance
             bar_instance = Bar(
