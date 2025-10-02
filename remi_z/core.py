@@ -534,9 +534,9 @@ class Bar:
 
         return piano_roll
 
-    def to_midi(self, midi_fp: str):
+    def to_midi(self, midi_fp: str, tempo: float=None):
         mt = MultiTrack.from_bars([self])
-        mt.to_midi(midi_fp)
+        mt.to_midi(midi_fp, tempo=tempo)
 
     def get_all_notes(self, include_drum=True, of_insts:List[int]=None, deduplicate=False) -> List[Note]:
         '''
@@ -1098,11 +1098,20 @@ class MultiTrack:
         ret = self.to_remiz_seq(with_ts=with_ts, with_tempo=with_tempo, with_velocity=with_velocity)
         return ' '.join(ret)
 
-    def to_midi(self, midi_fp: str):
+    def to_midi(self, midi_fp: str, tempo: float=None):
         """
         Create a MIDI file from the MultiTrack object using miditoolkit.
+
+        Args:
+            midi_fp: The file path to save the MIDI file.
+            tempo: If specified, override all tempos in the MultiTrack with this value.
         """
         assert isinstance(midi_fp, str), "midi_fp must be a string"
+
+        if tempo is not None:
+            assert isinstance(tempo, (int, float)), "tempo must be an integer or float"
+            tempo = round(tempo, 2)
+            self.set_tempo(tempo)
         
         # 创建一个空的 MidiFile 对象
         # 默认 ticks_per_beat 是480，你可以根据需要修改
