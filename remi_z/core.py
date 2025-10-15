@@ -1034,13 +1034,14 @@ class MultiTrack:
         return cls.from_remiz_str(remiz_str)
 
     @classmethod
-    def from_remiz_str(cls, remiz_str:str):
+    def from_remiz_str(cls, remiz_str:str, verbose:bool=True):
         '''
         Create a MultiTrack object from a remiz string.
         '''
         assert isinstance(remiz_str, str), "remiz_str must be a string"
         if 'b-1' not in remiz_str:
-            print(f'WARNING: remiz_str "{remiz_str}" does not contain any bar information. Adding a end-of-bar at the end.')
+            if verbose:
+                print(f'WARNING: remiz_str "{remiz_str}" does not contain any bar information. Adding a end-of-bar at the end.')
             remiz_str += ' b-1'
         if 'v' in remiz_str:
             with_velocity = True
