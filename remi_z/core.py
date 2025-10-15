@@ -886,6 +886,22 @@ class MultiTrack:
         return all_insts
 
     @classmethod
+    def concat(cls, mts:List['MultiTrack']):
+        '''
+        Concatenate multiple MultiTrack objects into a single MultiTrack object.
+        '''
+        assert isinstance(mts, list), "mts must be a list"
+        assert len(mts) > 0, "mts must not be empty"
+        for mt in mts:
+            assert isinstance(mt, MultiTrack), "mts must be a list of MultiTrack objects"
+
+        all_bars = []
+        for mt in mts:
+            all_bars.extend(mt.bars)
+        
+        return cls(bars=all_bars)
+
+    @classmethod
     def from_bars(cls, bars:List[Bar]):
         '''
         Create a MultiTrack object from a list of Bar objects.
@@ -1112,7 +1128,7 @@ class MultiTrack:
         ret = self.to_remiz_seq(with_ts=with_ts, with_tempo=with_tempo, with_velocity=with_velocity)
         return ' '.join(ret)
 
-    def to_midi(self, midi_fp: str, tempo: float=None):
+    def to_midi(self, midi_fp: str, tempo: float=None, verbose: bool=True):
         """
         Create a MIDI file from the MultiTrack object using miditoolkit.
 
@@ -1240,7 +1256,9 @@ class MultiTrack:
 
         # 写入MIDI文件
         midi_obj.dump(midi_fp)
-        print(f"MIDI file successfully written to {midi_fp}")
+
+        if verbose:
+            print(f"MIDI file successfully written to {midi_fp}")
 
 
     def to_midi_prettymidi(self, midi_fp: str):
