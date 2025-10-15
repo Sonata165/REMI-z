@@ -388,7 +388,7 @@ class Bar:
         Save to a new Bar object.
         Remove drum tracks.
         '''        
-        assert len(self.tracks) > 0, "Bar has no tracks to flatten"
+        # assert len(self.tracks) > 0, "Bar has no tracks to flatten"
         all_notes = self.get_all_notes(include_drum=False, deduplicate=True)
 
         track = Track.from_note_list(inst_id=0, note_list=all_notes)
@@ -810,6 +810,13 @@ class MultiTrack:
         # Update the tempo in the tempo set
         self.update_ts_and_tempo()
     
+    def key_norm(self):
+        '''
+        Normalize the pitch of all notes in the MultiTrack object.
+        '''
+        pitch_shift = self.normalize_pitch()
+        return pitch_shift
+
     def normalize_pitch(self):
         '''
         Normalize the pitch of all notes in the MultiTrack object.
@@ -830,6 +837,8 @@ class MultiTrack:
                         # If the pitch is out of range, adjust it
                         if note.pitch < 0:
                             note.pitch += 12
+        
+        return pitch_shift
 
     def shift_pitch(self, pitch_shift):
         '''

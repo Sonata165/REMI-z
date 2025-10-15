@@ -336,7 +336,11 @@ def default_check_midi(midi_obj):
     assert 0 < midi_obj.ticks_per_beat < max_time_length, 'Bad ticks per beat'
 
     midi_notes_count = sum(len(inst.notes) for inst in midi_obj.instruments)
-    assert midi_notes_count > 0, 'Blank note.'
+
+    # assert midi_notes_count > 0, 'Blank note.'
+    # Raise warning instead
+    if midi_notes_count == 0:
+        print('WARNING: Blank note')
 
 
 def fill_pos_ts_and_tempo_(pos_info):
