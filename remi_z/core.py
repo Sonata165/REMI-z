@@ -242,6 +242,31 @@ class Track:
         '''
         return self.notes
     
+    def to_remiz_seq(self, with_velocity=False):
+        '''
+        Convert the Track object to a RemiZ sequence.
+        '''
+        track_seq = [f'i-{self.inst_id}']
+        prev_pos = -1
+        for note in self.notes:
+            if note.onset > prev_pos:
+                track_seq.append(f'o-{note.onset}')
+                prev_pos = note.onset
+
+            if self.is_drum:
+                pitch_id = note.pitch + 128
+            else:
+                pitch_id = note.pitch
+            track_seq.extend([
+                f'p-{pitch_id}',
+                f'd-{note.duration}',
+            ])
+
+            if with_velocity:
+                track_seq.append(f'v-{note.velocity}')
+
+        return track_seq
+    
     def is_drum_track(self) -> bool:
         '''
         Check if the Track is a drum track.
@@ -421,24 +446,8 @@ class Bar:
             if include_drum is False and track.is_drum:
                 continue
 
-            track_seq = [f'i-{inst_id}']
-            prev_pos = -1
-            for note in track.notes:
-                if note.onset > prev_pos:
-                    track_seq.append(f'o-{note.onset}')
-                    prev_pos = note.onset
-
-                if track.is_drum:
-                    pitch_id = note.pitch + 128
-                else:
-                    pitch_id = note.pitch
-                track_seq.extend([
-                    f'p-{pitch_id}',
-                    f'd-{note.duration}',
-                ])
-
-                if with_velocity:
-                    track_seq.append(f'v-{note.velocity}')
+            track_seq = track.to_remiz_seq(with_velocity=with_velocity)
+            
             bar_seq.extend(track_seq)
         bar_seq.append('b-1')
 
