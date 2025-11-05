@@ -772,6 +772,9 @@ class MultiTrack:
             pitch_shift: The pitch shift value. None means not detected.
             is_major: The major/minor key information. None means not detected.
         '''
+        # Parameters check
+        assert isinstance(bars, list), "bars must be a list"
+
         self.bars = bars
 
         self.update_ts_and_tempo()
@@ -1567,6 +1570,20 @@ class MultiTrack:
                 else:
                     merged_bar.tracks[other_prog_id].notes.extend(track.notes)
             new_bars.append(merged_bar)
+        
+        return MultiTrack(bars=new_bars)
+    
+    def permute_phrase(self, new_phrase_list: List[Tuple[int, int]]) -> "MultiTrack":
+        '''
+        Permute the phrases in the MultiTrack object.
+        Args:
+            new_phrase_list: List of tuples (start_bar, end_bar) for each phrase.
+        Returns:
+            New MultiTrack object with permuted phrases.
+        '''
+        new_bars = []
+        for start_bar, end_bar in new_phrase_list:
+            new_bars.extend(self.bars[start_bar:end_bar])
         
         return MultiTrack(bars=new_bars)
 
