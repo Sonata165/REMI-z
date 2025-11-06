@@ -1644,3 +1644,10 @@ def note_name_to_midi_pitch(note_name: str) -> int:
     if not (0 <= pitch <= 127):
         raise ValueError("Resulting MIDI pitch must be between 0 and 127")
     return pitch
+
+def save_remiz_str_to_midi(remiz_str: str, midi_fp: str):
+    '''
+    Save a REMI-z string to a MIDI file.
+    '''
+    mt = MultiTrack.from_remiz_str(remiz_str, verbose=False)
+    mt.to_midi(midi_fp)
