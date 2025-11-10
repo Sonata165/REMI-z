@@ -1087,6 +1087,7 @@ class MultiTrack:
             pitch = None
             duration = None
             velocity = None
+            pos = None
             for tok in bar_seq:
                 if tok.startswith('s-'):
                     time_sig = TimeSignatureUtil.convert_time_signature_token_to_tuple(tok)
