@@ -1,8 +1,8 @@
 # *REMI-z* tokenizer and *MultiTrack* music data structure
 
-This is the official implementation of the REMI-z tokenizer in the paper [*Unlocking Potential in Pre-Trained Music Language Models for Versatile Multi-Track Music Arrangement*](https://arxiv.org/abs/2408.15176).
+This is the official implementation of the REMI-z tokenizer in the paper [*Unifying Symbolic Music Arrangement: Track-Aware Reconstruction and Structured Tokenization*](https://arxiv.org/abs/2408.15176). 
 
-[[github](https://github.com/Sonata165/REMI-z) | [PyPI](https://pypi.org/project/REMI-z/) | [author](https://www.oulongshen.xyz/)]
+[ [Paper](https://arxiv.org/abs/2408.15176) | [Github](https://github.com/Sonata165/REMI-z) | [PyPI](https://pypi.org/project/REMI-z/) | [Author](https://www.oulongshen.xyz/)]
 
 This tool helps to convert your music between MIDI and REMI-z representation, which is an efficient sequence representation of multitrack music, meanwhile facilitate manipulate the music at bar level.
 
