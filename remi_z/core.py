@@ -407,6 +407,17 @@ class Bar:
 
         return cls(id=-1, notes_of_insts={0:notes}, time_signature=time_signature, tempo=tempo)
 
+    @classmethod
+    def from_remiz_seq(cls, bar_seq:List[str]):
+        mt = MultiTrack.from_remiz_seq(bar_seq)
+        assert len(mt) == 1, "Only support single-bar remiz seq"
+        return mt[0]
+    
+    @classmethod
+    def from_remiz_str(cls, bar_str:str):
+        remiz_seq = bar_str.strip().split()
+        return cls.from_remiz_seq(remiz_seq)
+
     def flatten(self) -> 'Bar':
         '''
         Flatten all tracks into a same one
