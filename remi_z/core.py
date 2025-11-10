@@ -1605,6 +1605,14 @@ class MultiTrack:
         for bar in self.bars:
             bar.filter_tracks(insts=insts)
 
+    def remove_tracks(self, insts:List[int]):
+        '''
+        Remove the tracks in the MultiTrack object. Remove the tracks in the insts list.
+        '''
+        for bar in self.bars:
+            insts_to_keep = [inst_id for inst_id in bar.tracks.keys() if inst_id not in insts]
+            bar.filter_tracks(insts=insts_to_keep)
+
 def deduplicate_notes(notes:List[Note]) -> List[Note]:
     '''
     Remove repeated notes with same onset and pitch.
