@@ -1113,7 +1113,7 @@ class MultiTrack:
                 if need_create_note:
                     # Create the note for the current instrument and position, 
                     # If pitch, duration, velocity are all not None
-                    if pitch is None or duration is None or velocity is None:
+                    if pos is None or pitch is None or duration is None or velocity is None:
                         pass
                     else:
                         if inst_id is None:
@@ -1597,6 +1597,13 @@ class MultiTrack:
             new_bars.extend(self.bars[start_bar:end_bar])
         
         return MultiTrack(bars=new_bars)
+
+    def filter_tracks(self, insts:List[int]):
+        '''
+        Filter the tracks in the MultiTrack object. Only keep the tracks in the insts list.
+        '''
+        for bar in self.bars:
+            bar.filter_tracks(insts=insts)
 
 def deduplicate_notes(notes:List[Note]) -> List[Note]:
     '''
