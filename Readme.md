@@ -2,7 +2,7 @@
 
 This is the official implementation of the REMI-z tokenizer in the paper [*Unifying Symbolic Music Arrangement: Track-Aware Reconstruction and Structured Tokenization*](https://arxiv.org/abs/2408.15176). 
 
-[ [Paper](https://arxiv.org/abs/2408.15176) | [Github](https://github.com/Sonata165/REMI-z) | [PyPI](https://pypi.org/project/REMI-z/) | [Author](https://www.oulongshen.xyz/)]
+[ [Paper](https://arxiv.org/abs/2408.15176) | [Demo](https://www.oulongshen.xyz/automatic_arrangement) | [Github](https://github.com/Sonata165/REMI-z) | [PyPI](https://pypi.org/project/REMI-z/) | [Author](https://www.oulongshen.xyz/)]
 
 This tool helps to convert your music between MIDI and REMI-z representation, which is an efficient sequence representation of multitrack music, meanwhile facilitate manipulate the music at bar level.
 
@@ -34,3 +34,12 @@ Please refer to the `demo.ipynb`.
 
 ## Known issues
 - Create MultiTrack object from REMI-z sequence does not yet support multiple tracks of same program ID. 
+
+## Citation
+
+    @inproceedings{ou2025unifying,
+        title     = {Unifying Symbolic Music Arrangement: Track-Aware Reconstruction and Structured Tokenization},
+        author    = {Ou, Longshen and Zhao, Jingwei and Wang, Ziyu and Xia, Gus and Liang, Qihao and Hopkins, Torin and Wang, Ye},
+        booktitle = {Proceedings of the 39th Conference on Neural Information Processing Systems (NeurIPS)},
+        year      = {2025}
+    }
