@@ -1057,7 +1057,7 @@ class MultiTrack:
         return cls.from_remiz_str(remiz_str)
 
     @classmethod
-    def from_remiz_str(cls, remiz_str:str, verbose:bool=True):
+    def from_remiz_str(cls, remiz_str:str, verbose:bool=True, remove_repeated_eob:bool=False):
         '''
         Create a MultiTrack object from a remiz string.
         '''
@@ -1070,6 +1070,11 @@ class MultiTrack:
             with_velocity = True
         else:
             with_velocity = False
+
+        # Remove repeated 'b-1' token
+        if remove_repeated_eob:
+            while 'b-1 b-1' in remiz_str:
+                remiz_str = remiz_str.replace('b-1 b-1', 'b-1')
 
         bar_seqs = []
 
