@@ -1110,7 +1110,7 @@ class MultiTrack:
                 elif tok.startswith('d-'):
                     duration = int(tok[2:])
                     if not with_velocity:
-                        velocity = 90 # 64
+                        velocity = 64 # 90
                         need_create_note = True
                 elif tok.startswith('v-'):
                     velocity = int(tok[2:])
