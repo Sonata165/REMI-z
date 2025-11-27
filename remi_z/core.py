@@ -533,7 +533,7 @@ class Bar:
         if of_insts is None:
             insts = all_insts
         else:
-            insts = all_insts.intersection(of_insts)
+            insts = set(all_insts).intersection(of_insts)
 
         # Obtain notes to be added to the piano roll
         notes = self.get_all_notes(
@@ -773,6 +773,26 @@ class Bar:
             if inst_id in self.tracks:
                 new_tracks[inst_id] = self.tracks[inst_id]
         self.tracks = new_tracks
+
+    def change_instrument(self, old_inst_id:int, new_inst_id:int):
+        '''
+        Change the instrument ID of a track in the Bar object.
+        '''
+        # assert old_inst_id in self.tracks, f"old_inst_id {old_inst_id} not found in the Bar"
+        if old_inst_id not in self.tracks:
+            return
+        
+        track = self.tracks.pop(old_inst_id)
+        track.set_inst_id(new_inst_id)
+        self.tracks[new_inst_id] = track
+
+        # Re-sort the tracks
+        track_list = list(self.tracks.values())
+        track_list.sort()
+        self.tracks = {}
+        for track in track_list:
+            self.tracks[track.inst_id] = track
+
     
 
 class MultiTrack:
@@ -832,6 +852,21 @@ class MultiTrack:
 
         # Update the tempo in the tempo set
         self.update_ts_and_tempo()
+
+    def set_velocity(self, velocity:int, track_id:int=None):
+        '''
+        Set the velocity for all notes in the MultiTrack object.
+        '''
+        assert isinstance(velocity, int), "velocity must be an integer"
+        assert 0 <= velocity <= 127, "velocity must be in the range of [0, 127]"
+
+        for bar in self.bars:
+            for inst_id, track in bar.tracks.items():
+                if track_id is not None and inst_id != track_id:
+                    continue
+                else:
+                    for note in track.notes:
+                        note.velocity = velocity
     
     def key_norm(self):
         '''
@@ -863,7 +898,7 @@ class MultiTrack:
         
         return pitch_shift
 
-    def shift_pitch(self, pitch_shift):
+    def shift_pitch(self, pitch_shift, track_id:int=None):
         '''
         Shift pitch for all notes
         '''
@@ -872,6 +907,8 @@ class MultiTrack:
         for bar in self.bars:
             for inst_id, track in bar.tracks.items():
                 if track.is_drum:
+                    continue
+                if track_id is not None and inst_id != track_id:
                     continue
                 else:
                     for note in track.notes:
@@ -1110,7 +1147,7 @@ class MultiTrack:
                 elif tok.startswith('d-'):
                     duration = int(tok[2:])
                     if not with_velocity:
-                        velocity = 64 # 90
+                        velocity = 96 # 64
                         need_create_note = True
                 elif tok.startswith('v-'):
                     velocity = int(tok[2:])
@@ -1265,8 +1302,9 @@ class MultiTrack:
                     instrument = miditoolkit.midi.containers.Instrument(
                         program=program,
                         is_drum=(prog_id == 128),  # 若为打击乐
-                        name=f"Instrument_{prog_id}" # Set Track name to Instrument_{inst_id} # Note CA v2 need {inst_id}
+                        name=f"Instrument_{prog_id}", # Set Track name to Instrument_{inst_id} # Note CA v2 need {inst_id}
                         # name=f"{inst_id}" # Use with Composer's Assistant
+                        # name='Pixel EP' # See if work with garageband  result: no
                     )
                     instrument_map[track_id] = instrument
                     midi_obj.instruments.append(instrument)
@@ -1618,6 +1656,13 @@ class MultiTrack:
         for bar in self.bars:
             insts_to_keep = [inst_id for inst_id in bar.tracks.keys() if inst_id not in insts]
             bar.filter_tracks(insts=insts_to_keep)
+
+    def change_instrument(self, old_inst_id:int, new_inst_id:int):
+        '''
+        Change the instrument ID of the tracks in the MultiTrack object.
+        '''
+        for bar in self.bars:
+            bar.change_instrument(old_inst_id=old_inst_id, new_inst_id=new_inst_id)
 
 def deduplicate_notes(notes:List[Note]) -> List[Note]:
     '''
