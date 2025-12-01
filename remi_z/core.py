@@ -438,6 +438,16 @@ class Bar:
         )
         return new_bar
 
+    def to_remiz_str(self, with_ts=False, with_tempo=False, with_velocity=False, include_drum=False):
+        remiz_seq = self.to_remiz_seq(
+            with_ts=with_ts,
+            with_tempo=with_tempo,
+            with_velocity=with_velocity,
+            include_drum=include_drum
+        )
+        remiz_str = ' '.join(remiz_seq)
+        return remiz_str
+
     def to_remiz_seq(self, with_ts=False, with_tempo=False, with_velocity=False, include_drum=False):
         bar_seq = []
 
