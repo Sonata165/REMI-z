@@ -266,6 +266,11 @@ class Track:
                 track_seq.append(f'v-{note.velocity}')
 
         return track_seq
+
+    def to_remiz_str(self, with_velocity=False):
+        track_seq = self.to_remiz_seq(with_velocity=with_velocity)
+        track_str = ' '.join(track_seq)
+        return track_str
     
     def is_drum_track(self) -> bool:
         '''
