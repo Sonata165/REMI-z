@@ -969,6 +969,25 @@ class MultiTrack:
                 all_insts.add(inst_id)
         return all_insts
 
+    def get_inst_layout(self):
+        '''
+        Get the instrumentation layout of the MultiTrack object.
+        A list of list of tokens:
+        [[i-0, i-24, i-32, b-1], [i-0, i-24, i-40, b-1], ...]
+        Representing instrument and voice of each bar.
+        '''
+        inst_conf = []
+        for bar in self.bars:
+            bar_inst_conf = []
+
+            # Get instruments in this bar
+            inst_of_the_bar = [f'i-{i}' for i in bar.get_unique_insts()]
+            bar_inst_conf.extend(inst_of_the_bar)
+            bar_inst_conf.append('b-1')
+            inst_conf.append(bar_inst_conf)
+
+        return inst_conf
+
     @classmethod
     def concat(cls, mts:List['MultiTrack']):
         '''
