@@ -759,6 +759,14 @@ class Bar:
         chord_2 = detect_chord_from_pitch_list(p_list_2, return_root_name=True)
         return [chord_1, chord_2]
         
+    def get_phrases(self, with_bar_end=False) -> List[str]:
+        res = []
+        for track_id, track in self.tracks.items():
+            track_seq = track.to_remiz_seq(with_velocity=False)
+            res.append(" ".join(track_seq))
+        if with_bar_end:
+            res.append('b-1')
+        return res
     
     def has_drum(self):
         '''
