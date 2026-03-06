@@ -93,7 +93,7 @@ from remi_z.multitrack import MultiTrack
 mt = MultiTrack.from_midi("your_song.mid")
 
 # Normalize key to C major or A minor
-pitch_shifted = mt.normalize_pitch()
+mt.key_norm()
 
 # Transpose all non‑drum tracks up a whole tone
 mt.shift_pitch(2)

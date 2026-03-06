@@ -41,8 +41,8 @@ key_profile = np.array([
 
 
 ''' Apply weighting to key_profile '''
-major_weight = [2, 0, 1.0, 0, 1.5, 1.0, 0, 1.5, 0, 1, 0, 1]
-minor_weight = [2, 0, 1, 1.5, 0, 1.0, 0, 1.5, 1.0, 0, 1.0, 0]
+major_weight = [2, 0, 1.0, 0, 1.5, 1.0, 0, 1.5, 0, 1, 1, 1]
+minor_weight = [2, 1, 1, 1.5, 0, 1.0, 0, 1.5, 1.0, 0, 1.0, 0]
 
 for i in range(24):
     if i < 12:
