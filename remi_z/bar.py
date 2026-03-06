@@ -1,0 +1,575 @@
+import numpy as np
+from typing import List, Dict, Tuple
+
+from .note import Note
+from .track import Track
+from .midi_encoding import convert_tempo_to_id, convert_id_to_tempo
+from .time_signature_utils import TimeSignatureUtil
+from .chord import detect_chord_from_pitch_list
+
+
+def deduplicate_notes(notes: List[Note]) -> List[Note]:
+    """
+    Remove repeated notes with same onset and pitch.
+    NOTE: Ensure the notes are sorted before calling this function.
+
+    Args:
+        notes: List of Note objects
+
+    Returns:
+        List of Note objects with repeated notes removed
+        If note has same onset and pitch, only the first note (with longest duration) will be kept.
+        If note has same onset, pitch, and duration, only the first note (with highest velocity) will be kept.
+    """
+    notes_dedup = []
+    prev_onset = None
+    prev_pitch = None
+    for note in notes:
+        if note.onset == prev_onset and note.pitch == prev_pitch:
+            continue
+        notes_dedup.append(note)
+        prev_onset = note.onset
+        prev_pitch = note.pitch
+    return notes_dedup
+
+
+class Bar:
+    def __init__(
+        self,
+        id,
+        notes_of_insts: Dict[int, Dict[int, List]],
+        time_signature: Tuple[int, int] = None,
+        tempo: float = None,
+    ):
+        """
+        NOTE: The instrument with higher average pitch will be placed at the front.
+        """
+        if time_signature:
+            assert isinstance(time_signature, tuple), "time_signature must be a tuple"
+        else:
+            time_signature = (4, 4)
+        if tempo:
+            assert isinstance(tempo, (int, float)), "tempo must be an integer or float"
+        else:
+            tempo = 120.0
+
+        # Round tempo to 0.01
+        tempo = round(tempo, 2)
+
+        self.bar_id = id
+
+        # Parse notes_of_insts
+        if notes_of_insts is not None:
+            track_list = []
+            for inst_id, notes in notes_of_insts.items():
+                if isinstance(inst_id, int):
+                    prog_id = inst_id
+                    track_id = inst_id
+                elif isinstance(inst_id, tuple):
+                    assert len(inst_id) == 2, "inst_id tuple must have length 2"
+                    prog_id, track_id = inst_id
+                track = Track(prog_id, notes, track_id)
+                track_list.append(track)
+            track_list.sort()
+
+            self.tracks: Dict[int, Track] = {}
+            for track in track_list:
+                track_id = track.track_id
+                self.tracks[track_id] = track
+        else:
+            self.tracks = {}
+
+        self.time_signature = time_signature
+        self.tempo = tempo
+
+    def __len__(self):
+        return len(self.tracks)
+
+    def __str__(self) -> str:
+        return f"Bar {self.bar_id}: {len(self.tracks)} insts"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+    @classmethod
+    def from_tracks(cls, bar_id, track_list, time_signature=(4, 4), tempo=120.0):
+        """
+        Create a Bar object from a list of Track objects.
+        """
+        assert isinstance(track_list, list), "track_list must be a list"
+        # return cls(id=bar_id, notes_of_insts={track.inst_id:track.get_all_notes() for track in track_list}, time_signature=time_signature, tempo=tempo)
+
+        if time_signature:
+            assert isinstance(time_signature, tuple), "time_signature must be a tuple"
+        else:
+            time_signature = (4, 4)
+        if tempo:
+            assert isinstance(tempo, (int, float)), "tempo must be an integer or float"
+        else:
+            tempo = 120.0
+
+        # Round tempo to 0.01
+        tempo = round(tempo, 2)
+
+        # Create an empty Bar object
+        bar = cls(
+            id=bar_id, notes_of_insts={}, time_signature=time_signature, tempo=tempo
+        )
+
+        # Add tracks to the Bar object
+        track_list.sort()
+        for track in track_list:
+            inst_id = track.inst_id
+            bar.tracks[inst_id] = track
+
+        return bar
+
+    @classmethod
+    def from_piano_roll(
+        cls, piano_roll, pos_per_bar=16, time_signature=(4, 4), tempo=120.0
+    ):
+        """
+        Convert the Bar object to a piano roll matrix.
+        """
+        coeff = 48 // pos_per_bar
+
+        notes = {}
+        for p_pos in range(piano_roll.shape[0]):
+            for pitch in range(piano_roll.shape[1]):
+                if piano_roll[p_pos, pitch] > 0:
+                    p_dur = piano_roll[p_pos, pitch]
+                    dur = int((p_dur * coeff).item())
+                    onset = p_pos * coeff
+                    # note = Note(onset=onset, duration=dur, pitch=pitch)
+                    note = [pitch, dur, 64]  # pitch, duration, velocity
+
+                    # Add note to notes
+                    if onset not in notes:
+                        notes[onset] = []
+                    notes[onset].append(note)
+
+        return cls(
+            id=-1, notes_of_insts={0: notes}, time_signature=time_signature, tempo=tempo
+        )
+
+    @classmethod
+    def from_remiz_seq(cls, bar_seq: List[str]):
+        from .multitrack import MultiTrack
+        mt = MultiTrack.from_remiz_seq(bar_seq)
+        assert len(mt) == 1, "Only support single-bar remiz seq"
+        return mt[0]
+
+    @classmethod
+    def from_remiz_str(cls, bar_str: str):
+        remiz_seq = bar_str.strip().split()
+        return cls.from_remiz_seq(remiz_seq)
+
+    def flatten(self) -> "Bar":
+        """
+        Flatten all tracks into a same one
+        Save to a new Bar object.
+        Remove drum tracks.
+        """
+        # assert len(self.tracks) > 0, "Bar has no tracks to flatten"
+        all_notes = self.get_all_notes(include_drum=False, deduplicate=True)
+
+        track = Track.from_note_list(inst_id=0, note_list=all_notes)
+
+        # Create a new Bar object with a single track
+        new_bar = Bar.from_tracks(
+            bar_id=self.bar_id,
+            track_list=[track],
+            time_signature=self.time_signature,
+            tempo=self.tempo,
+        )
+        return new_bar
+
+    def to_remiz_str(
+        self, with_ts=False, with_tempo=False, with_velocity=False, include_drum=False
+    ):
+        remiz_seq = self.to_remiz_seq(
+            with_ts=with_ts,
+            with_tempo=with_tempo,
+            with_velocity=with_velocity,
+            include_drum=include_drum,
+        )
+        remiz_str = " ".join(remiz_seq)
+        return remiz_str
+
+    def to_remiz_seq(
+        self, with_ts=False, with_tempo=False, with_velocity=False, include_drum=False
+    ):
+        bar_seq = []
+
+        # Add time signature
+        if with_ts:
+            # time_sig = bar.time_signature.strip()[1:-1]
+            num, den = self.time_signature
+            ts_token = TimeSignatureUtil.convert_time_signature_to_ts_token(
+                int(num), int(den)
+            )
+            bar_seq.append(ts_token)
+
+        if with_tempo:
+            tempo_id = convert_tempo_to_id(self.tempo)
+            tempo_tok = f"t-{tempo_id}"
+            bar_seq.append(tempo_tok)
+
+        for inst_id, track in self.tracks.items():
+            if include_drum is False and track.is_drum:
+                continue
+
+            track_seq = track.to_remiz_seq(with_velocity=with_velocity)
+
+            bar_seq.extend(track_seq)
+        bar_seq.append("b-1")
+
+        return bar_seq
+
+    def to_remiplus_seq(
+        self, with_ts=False, with_tempo=False, with_velocity=False, include_drum=False
+    ):
+        bar_seq = []
+
+        # Add time signature
+        if with_ts:
+            # time_sig = bar.time_signature.strip()[1:-1]
+            num, den = self.time_signature
+            ts_token = TimeSignatureUtil.convert_time_signature_to_ts_token(
+                int(num), int(den)
+            )
+            bar_seq.append(ts_token)
+
+        if with_tempo:
+            tempo_id = convert_tempo_to_id(self.tempo)
+            tempo_tok = f"t-{tempo_id}"
+            bar_seq.append(tempo_tok)
+
+        all_notes_oipd = []
+        for inst_id, track in self.tracks.items():
+            if include_drum is False and track.is_drum:
+                continue
+
+            notes = track.get_all_notes()
+
+            for note in notes:
+                if track.is_drum:
+                    pitch_id = note.pitch + 128
+                else:
+                    pitch_id = note.pitch
+
+                all_notes_oipd.append((note.onset, inst_id, pitch_id, note.duration))
+
+        all_notes_oipd.sort()
+
+        for onset, inst_id, pitch, dur in all_notes_oipd:
+            bar_seq.extend(
+                [
+                    f"o-{onset}",
+                    f"i-{inst_id}",
+                    f"p-{pitch}",
+                    f"d-{dur}",
+                ]
+            )
+        bar_seq.append("b-1")
+
+        return bar_seq
+
+    def to_piano_roll(self, of_insts: List[int] = None, pos_per_bar=16) -> np.ndarray:
+        """
+        Convert the Bar object to a piano roll matrix.
+
+        NOTE: Always first quantize the MultiTrack to 16th notes before use this function
+
+        Args:
+            of_insts: List of instrument IDs to be included in the piano roll. None means all instruments.
+        """
+        # Create a piano roll matrix
+        # [pos, pitch] = duration
+        n_pitch = 128
+        coeff = 48 / pos_per_bar
+
+        pos_per_beat = pos_per_bar // 4
+        beats_per_bar = self.time_signature[0]
+        pos_per_bar = pos_per_beat * beats_per_bar
+        piano_roll = np.zeros((pos_per_bar, n_pitch), dtype=int)
+
+        # Get valid instruments
+        all_insts = self.get_unique_insts()
+        if of_insts is None:
+            insts = all_insts
+        else:
+            insts = set(all_insts).intersection(of_insts)
+
+        # Obtain notes to be added to the piano roll
+        notes = self.get_all_notes(include_drum=False, of_insts=insts)
+
+        # Deduplicate notes
+        notes = deduplicate_notes(notes)
+
+        # Add notes to the piano roll
+        # NOTE: the pos in piano roll is 1/3 of note.onset
+        for note in notes:
+            onset_pos = min(round(note.onset / coeff), pos_per_bar - 1)
+            dur = round(note.duration / coeff)
+            pitch = note.pitch
+            piano_roll[onset_pos, pitch] = dur
+
+        return piano_roll
+
+    def to_midi(self, midi_fp: str, tempo: float = None):
+        from .multitrack import MultiTrack
+        mt = MultiTrack.from_bars([self])
+        mt.to_midi(midi_fp, tempo=tempo)
+
+    def get_all_notes(
+        self, include_drum=True, of_insts: List[int] = None, deduplicate=False
+    ) -> List[Note]:
+        """
+        Get all notes in the Bar
+        NOTE: Results are sorted by onset, pitch, duration, and velocity.
+        """
+        assert (
+            isinstance(of_insts, (list, set)) or of_insts is None
+        ), "of_insts must be a list or None"
+
+        if of_insts is None:
+            of_insts = list(self.tracks.keys())
+
+        all_notes = []
+        for inst_id in of_insts:
+            if inst_id not in self.tracks:
+                continue
+            # assert inst_id in self.tracks, f"of_inst {inst_id} not found in the bar"
+            track = self.tracks[inst_id]
+            if not include_drum and track.is_drum:
+                continue
+            all_notes.extend(track.get_all_notes())
+
+        # Sort the notes
+        all_notes.sort()
+
+        if deduplicate:
+            # Remove repeated notes with same onset and pitch, keep one with largest duration
+            all_notes = deduplicate_notes(all_notes)
+
+        return all_notes
+
+    def get_content_seq(self, include_drum=False, of_insts=None, with_dur=True):
+        """
+        Convert the Bar object to a content sequence.
+        Including information about all notes being played
+        Without instrument information.
+
+        Args:
+            include_drum: Whether to include drum tracks
+            of_insts: A list of instrument IDs to extract the content sequence. None means all instruments.
+            with_dur: Whether to include duration information in the content sequence.
+        """
+        assert (
+            include_drum is False
+        ), "include_drum in content sequence is not supported yet"
+
+        notes = self.get_all_notes(include_drum=include_drum, of_insts=of_insts)
+
+        # Remove repeated notes with same onset and pitch, keep one with largest duration
+        notes = deduplicate_notes(notes)
+
+        # Convert to content sequence (containing only o-X, p-X, d-X)
+        bar_seq = []
+        prev_pos = -1
+        for note in notes:
+            if note.onset > prev_pos:
+                bar_seq.append(f"o-{note.onset}")
+                prev_pos = note.onset
+
+            bar_seq.extend(
+                [
+                    f"p-{note.pitch}",
+                ]
+            )
+            if with_dur:
+                bar_seq.append(f"d-{note.duration}")
+
+        bar_seq.append("b-1")
+
+        return bar_seq
+
+    def get_drum_content_seq(self, with_dur=True):
+        """
+        Convert the Bar object to a content sequence.
+        Including information about all drum notes being played
+
+        Args:
+            with_dur: Whether to include duration information in the content sequence.
+        """
+
+        notes = self.get_all_notes(
+            include_drum=True,
+            of_insts=[128],
+        )
+
+        # Remove repeated notes with same onset and pitch, keep one with largest duration
+        notes = deduplicate_notes(notes)
+
+        # Convert to content sequence (containing only o-X, p-X, d-X)
+        bar_seq = []
+        prev_pos = -1
+        for note in notes:
+            if note.onset > prev_pos:
+                bar_seq.append(f"o-{note.onset}")
+                prev_pos = note.onset
+
+            pitch_id = note.pitch + 128
+            bar_seq.extend(
+                [
+                    f"p-{pitch_id}",
+                ]
+            )
+            if with_dur:
+                bar_seq.append(f"d-{note.duration}")
+
+        bar_seq.append("b-1")
+
+        return bar_seq
+
+    def get_unique_insts(self, sort_by_voice=True, include_drum=True) -> List[int]:
+        """
+        Get all unique instruments in the MultiTrack object.
+        """
+        assert sort_by_voice is True, "sort_by_voice must be True"
+
+        all_insts = []
+        for inst_id in self.tracks.keys():
+            if include_drum is False and inst_id == 128:
+                continue
+            all_insts.append(inst_id)
+
+        return all_insts
+
+    def get_pitch_range(self, of_insts: List[int] = None):
+        """
+        Calculate the range of the notes in the Bar.
+        Will return max_pitch - min_pitch + 1
+        If no notes found, return -1.
+        """
+        assert (
+            isinstance(of_insts, (list, set)) or of_insts is None
+        ), "of_insts must be a list or None"
+        all_insts = self.get_unique_insts()
+        if of_insts is None:
+            insts = all_insts
+        else:
+            all_insts = set(all_insts)
+            insts = all_insts.intersection(of_insts)
+
+        notes = self.get_all_notes(include_drum=False, of_insts=list(insts))
+        if len(notes) == 0:
+            return -1
+
+        min_pitch = 128
+        max_pitch = -1
+        for note in notes:
+            min_pitch = min(min_pitch, note.pitch)
+            max_pitch = max(max_pitch, note.pitch)
+        pitch_range = max_pitch - min_pitch
+        pitch_range = int(pitch_range)
+        return pitch_range + 1
+
+    def get_melody(self, mel_def: str) -> List[Note]:
+        """
+        Get melody notes
+        mel_def = 'hi_track': content of tarck with highest avg pitch
+        mel_def = 'hi_note': highest note of each position
+        """
+        assert mel_def in ["hi_track", "hi_note"]
+
+        if mel_def == "hi_track":
+            track_list = list(self.tracks.values())
+            track_list.sort()
+            melody_track = track_list[0]
+            return melody_track.get_all_notes()
+        elif mel_def == "hi_note":
+            all_notes = self.get_all_notes(include_drum=False)
+            melody_notes = []
+            cur_pos = -1
+            for note in all_notes:
+                if note.onset != cur_pos:
+                    cur_pos = note.onset
+                    melody_notes.append(note)
+            return melody_notes
+
+    def get_chord(self):
+        """
+        Calculate the chord of this bar
+        Return a list contains two chords, like below
+            [('C', 'Major'), ('D', 'Minor7')]
+        If no notes inside, return [None, None]
+
+        NOTE: this function only support 4/4 bars for now
+        """
+        notes = self.get_all_notes(include_drum=False)
+
+        p_list_1 = [note.pitch for note in notes if note.onset < 24]
+        p_list_2 = [note.pitch for note in notes if note.onset >= 24]
+
+        chord_1 = detect_chord_from_pitch_list(p_list_1)
+        chord_2 = detect_chord_from_pitch_list(p_list_2)
+        return [chord_1, chord_2]
+
+    def get_phrases(self, with_bar_end=False) -> List[str]:
+        res = []
+        for track_id, track in self.tracks.items():
+            track_seq = track.to_remiz_seq(with_velocity=False)
+            res.append(" ".join(track_seq))
+        if with_bar_end:
+            res.append("b-1")
+        return res
+
+    def has_drum(self):
+        """
+        Check if the Bar has drum tracks.
+        """
+        for inst_id, track in self.tracks.items():
+            if track.is_drum_track():
+                return True
+        return False
+
+    def has_piano(self):
+        """
+        Check if the Bar has any piano tracks.
+        """
+        piano_ids = set([0, 1, 2, 3, 4, 5, 6, 7])
+        for inst_id, track in self.tracks.items():
+            if inst_id in piano_ids:
+                return True
+        return False
+
+    def filter_tracks(self, insts: List[int]):
+        """
+        Filter the tracks in the Bar object. Only keep the tracks in the insts list.
+        """
+        new_tracks = {}
+        for inst_id in insts:
+            if inst_id in self.tracks:
+                new_tracks[inst_id] = self.tracks[inst_id]
+        self.tracks = new_tracks
+
+    def change_instrument(self, old_inst_id: int, new_inst_id: int):
+        """
+        Change the instrument ID of a track in the Bar object.
+        """
+        # assert old_inst_id in self.tracks, f"old_inst_id {old_inst_id} not found in the Bar"
+        if old_inst_id not in self.tracks:
+            return
+
+        track = self.tracks.pop(old_inst_id)
+        track.set_inst_id(new_inst_id)
+        self.tracks[new_inst_id] = track
+
+        # Re-sort the tracks
+        track_list = list(self.tracks.values())
+        track_list.sort()
+        self.tracks = {}
+        for track in track_list:
+            self.tracks[track.inst_id] = track
