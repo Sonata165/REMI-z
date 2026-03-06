@@ -34,6 +34,25 @@ def deduplicate_notes(notes: List[Note]) -> List[Note]:
 
 
 class Bar:
+    """
+    A single bar of music containing one or more instrument tracks.
+
+    Tracks are stored in a dict keyed by instrument ID (GM program number 0–127,
+    or 128 for drums) and ordered by descending average pitch so that higher-pitched
+    voices appear first.
+
+    Attributes
+    ----------
+    bar_id : int
+        Index of this bar within its parent MultiTrack (or -1 if standalone).
+    tracks : Dict[int, Track]
+        Mapping from instrument ID to Track, sorted by descending average pitch.
+    time_signature : Tuple[int, int]
+        Numerator and denominator of the time signature (default ``(4, 4)``).
+    tempo : float
+        Tempo in BPM, rounded to two decimal places (default ``120.0``).
+    """
+
     def __init__(
         self,
         id,
@@ -42,7 +61,23 @@ class Bar:
         tempo: float = None,
     ):
         """
-        NOTE: The instrument with higher average pitch will be placed at the front.
+        Parameters
+        ----------
+        id : int
+            Bar index.
+        notes_of_insts : Dict[int, Dict[int, List]]
+            Mapping from instrument ID (or ``(prog_id, track_id)`` tuple) to a
+            dict of ``{onset: [(pitch, duration, velocity), ...]}`` note data.
+            Pass an empty dict ``{}`` for a bar with no notes.
+        time_signature : Tuple[int, int], optional
+            ``(numerator, denominator)``; defaults to ``(4, 4)``.
+        tempo : float, optional
+            BPM; defaults to ``120.0``.
+
+        Notes
+        -----
+        Tracks are sorted so that the instrument with the highest average pitch
+        is placed first (index 0).
         """
         if time_signature:
             assert isinstance(time_signature, tuple), "time_signature must be a tuple"
@@ -129,7 +164,29 @@ class Bar:
         cls, piano_roll, pos_per_bar=16, time_signature=(4, 4), tempo=120.0
     ):
         """
-        Convert the Bar object to a piano roll matrix.
+        Create a Bar from a piano roll matrix.
+
+        The piano roll is a 2-D array of shape ``(pos_per_bar, 128)`` where
+        ``piano_roll[position, pitch]`` holds the note duration (in piano-roll
+        positions, 0 = silent).  All notes are assigned to instrument 0 (piano).
+
+        Parameters
+        ----------
+        piano_roll : np.ndarray
+            2-D integer array of shape ``(pos_per_bar, 128)``.
+        pos_per_bar : int, optional
+            Number of grid positions per bar used by the piano roll (default 16).
+            Each piano-roll position maps to ``48 // pos_per_bar`` REMI-z positions.
+        time_signature : Tuple[int, int], optional
+            ``(numerator, denominator)``; defaults to ``(4, 4)``.
+        tempo : float, optional
+            BPM; defaults to ``120.0``.
+
+        Returns
+        -------
+        Bar
+            A new Bar whose ``bar_id`` is ``-1`` and contains a single
+            instrument-0 track built from the piano roll data.
         """
         coeff = 48 // pos_per_bar
 
@@ -154,6 +211,22 @@ class Bar:
 
     @classmethod
     def from_remiz_seq(cls, bar_seq: List[str]):
+        """
+        Create a Bar from a REMI-z token sequence.
+
+        The sequence must represent exactly one bar (i.e. contain a single
+        ``b-1`` end token).
+
+        Parameters
+        ----------
+        bar_seq : List[str]
+            Tokenized REMI-z sequence for one bar, e.g.
+            ``['i-0', 'o-0', 'p-60', 'd-12', 'v-64', 'b-1']``.
+
+        Returns
+        -------
+        Bar
+        """
         from .multitrack import MultiTrack
         mt = MultiTrack.from_remiz_seq(bar_seq)
         assert len(mt) == 1, "Only support single-bar remiz seq"
@@ -161,14 +234,37 @@ class Bar:
 
     @classmethod
     def from_remiz_str(cls, bar_str: str):
+        """
+        Create a Bar from a whitespace-delimited REMI-z string.
+
+        Convenience wrapper around :meth:`from_remiz_seq` that splits the
+        string before parsing.
+
+        Parameters
+        ----------
+        bar_str : str
+            A single-bar REMI-z string, e.g.
+            ``'i-0 o-0 p-60 d-12 v-64 b-1'``.
+
+        Returns
+        -------
+        Bar
+        """
         remiz_seq = bar_str.strip().split()
         return cls.from_remiz_seq(remiz_seq)
 
     def flatten(self) -> "Bar":
         """
-        Flatten all tracks into a same one
-        Save to a new Bar object.
-        Remove drum tracks.
+        Merge all non-drum tracks into a single instrument-0 track.
+
+        Returns a new Bar object; the original is not modified.
+        Drum tracks are excluded from the merged result.
+
+        Returns
+        -------
+        Bar
+            A new Bar with one track (instrument 0) containing all
+            deduplicated notes from every non-drum track.
         """
         # assert len(self.tracks) > 0, "Bar has no tracks to flatten"
         all_notes = self.get_all_notes(include_drum=False, deduplicate=True)
@@ -187,6 +283,25 @@ class Bar:
     def to_remiz_str(
         self, with_ts=False, with_tempo=False, with_velocity=False, include_drum=False
     ):
+        """
+        Serialize the Bar to a whitespace-delimited REMI-z string.
+
+        Parameters
+        ----------
+        with_ts : bool, optional
+            Prepend a time-signature token (default ``False``).
+        with_tempo : bool, optional
+            Prepend a tempo token (default ``False``).
+        with_velocity : bool, optional
+            Include ``v-X`` velocity tokens for each note (default ``False``).
+        include_drum : bool, optional
+            Include drum tracks in the output (default ``False``).
+
+        Returns
+        -------
+        str
+            Space-joined REMI-z token string ending with ``b-1``.
+        """
         remiz_seq = self.to_remiz_seq(
             with_ts=with_ts,
             with_tempo=with_tempo,
@@ -199,6 +314,29 @@ class Bar:
     def to_remiz_seq(
         self, with_ts=False, with_tempo=False, with_velocity=False, include_drum=False
     ):
+        """
+        Serialize the Bar to a list of REMI-z tokens.
+
+        Tokens are emitted per track in voice order (highest average pitch
+        first), each track using the format ``i-X o-X p-X d-X [v-X] ...``,
+        followed by a ``b-1`` bar-end token.
+
+        Parameters
+        ----------
+        with_ts : bool, optional
+            Prepend a time-signature token (default ``False``).
+        with_tempo : bool, optional
+            Prepend a tempo token (default ``False``).
+        with_velocity : bool, optional
+            Include ``v-X`` velocity tokens (default ``False``).
+        include_drum : bool, optional
+            Include drum tracks (default ``False``).
+
+        Returns
+        -------
+        List[str]
+            REMI-z token list ending with ``'b-1'``.
+        """
         bar_seq = []
 
         # Add time signature
@@ -229,6 +367,29 @@ class Bar:
     def to_remiplus_seq(
         self, with_ts=False, with_tempo=False, with_velocity=False, include_drum=False
     ):
+        """
+        Serialize the Bar to a REMI+ style token list.
+
+        Unlike REMI-z, REMI+ interleaves notes from all tracks sorted by onset
+        and uses the token order ``o-X i-X p-X d-X``.  Drum pitches are offset
+        by +128 in the ``p-X`` token.  The sequence ends with ``b-1``.
+
+        Parameters
+        ----------
+        with_ts : bool, optional
+            Prepend a time-signature token (default ``False``).
+        with_tempo : bool, optional
+            Prepend a tempo token (default ``False``).
+        with_velocity : bool, optional
+            Included for API symmetry; not yet used (default ``False``).
+        include_drum : bool, optional
+            Include drum tracks (default ``False``).
+
+        Returns
+        -------
+        List[str]
+            REMI+ token list ending with ``'b-1'``.
+        """
         bar_seq = []
 
         # Add time signature
@@ -277,12 +438,29 @@ class Bar:
 
     def to_piano_roll(self, of_insts: List[int] = None, pos_per_bar=16) -> np.ndarray:
         """
-        Convert the Bar object to a piano roll matrix.
+        Convert the Bar to a piano roll matrix.
 
-        NOTE: Always first quantize the MultiTrack to 16th notes before use this function
+        Returns a 2-D integer array of shape ``(pos_per_bar, 128)`` where
+        ``result[position, pitch]`` holds the note duration in piano-roll
+        positions (0 = silent).  Drum tracks are excluded.
 
-        Args:
-            of_insts: List of instrument IDs to be included in the piano roll. None means all instruments.
+        Parameters
+        ----------
+        of_insts : List[int], optional
+            Instrument IDs to include.  ``None`` (default) includes all
+            non-drum instruments.
+        pos_per_bar : int, optional
+            Grid resolution in positions per bar (default 16).
+
+        Returns
+        -------
+        np.ndarray
+            Integer array of shape ``(pos_per_bar * beats_per_bar / 4, 128)``.
+
+        Notes
+        -----
+        Quantize the Bar to 16th-note resolution before calling this method
+        to avoid rounding artefacts.
         """
         # Create a piano roll matrix
         # [pos, pitch] = duration
@@ -318,6 +496,16 @@ class Bar:
         return piano_roll
 
     def to_midi(self, midi_fp: str, tempo: float = None):
+        """
+        Write the Bar to a MIDI file.
+
+        Parameters
+        ----------
+        midi_fp : str
+            Destination file path (e.g. ``'output.mid'``).
+        tempo : float, optional
+            Override tempo in BPM.  If ``None``, the Bar's own tempo is used.
+        """
         from .multitrack import MultiTrack
         mt = MultiTrack.from_bars([self])
         mt.to_midi(midi_fp, tempo=tempo)
@@ -326,8 +514,24 @@ class Bar:
         self, include_drum=True, of_insts: List[int] = None, deduplicate=False
     ) -> List[Note]:
         """
-        Get all notes in the Bar
-        NOTE: Results are sorted by onset, pitch, duration, and velocity.
+        Return all notes in the Bar sorted by onset, pitch, duration, velocity.
+
+        Parameters
+        ----------
+        include_drum : bool, optional
+            Whether to include notes from drum tracks (default ``True``).
+        of_insts : List[int], optional
+            Restrict to these instrument IDs.  ``None`` (default) returns
+            notes from all instruments.
+        deduplicate : bool, optional
+            If ``True``, remove duplicate notes that share the same onset and
+            pitch, keeping the first occurrence (longest duration) per the
+            sorted order (default ``False``).
+
+        Returns
+        -------
+        List[Note]
+            Sorted, optionally deduplicated list of Note objects.
         """
         assert (
             isinstance(of_insts, (list, set)) or of_insts is None
@@ -435,7 +639,20 @@ class Bar:
 
     def get_unique_insts(self, sort_by_voice=True, include_drum=True) -> List[int]:
         """
-        Get all unique instruments in the MultiTrack object.
+        Return the instrument IDs present in this Bar.
+
+        Parameters
+        ----------
+        sort_by_voice : bool, optional
+            Must be ``True`` (only voice-sorted order is currently supported).
+        include_drum : bool, optional
+            Whether to include the drum track (instrument 128) in the result
+            (default ``True``).
+
+        Returns
+        -------
+        List[int]
+            Instrument IDs in voice order (highest average pitch first).
         """
         assert sort_by_voice is True, "sort_by_voice must be True"
 
@@ -478,9 +695,21 @@ class Bar:
 
     def get_melody(self, mel_def: str) -> List[Note]:
         """
-        Get melody notes
-        mel_def = 'hi_track': content of tarck with highest avg pitch
-        mel_def = 'hi_note': highest note of each position
+        Extract melody notes from the Bar.
+
+        Parameters
+        ----------
+        mel_def : str
+            Strategy for melody extraction:
+
+            - ``'hi_track'`` — return all notes from the track with the
+              highest average pitch.
+            - ``'hi_note'`` — return the highest-pitched note at each
+              onset position across all non-drum tracks.
+
+        Returns
+        -------
+        List[Note]
         """
         assert mel_def in ["hi_track", "hi_note"]
 
@@ -501,12 +730,23 @@ class Bar:
 
     def get_chord(self):
         """
-        Calculate the chord of this bar
-        Return a list contains two chords, like below
-            [('C', 'Major'), ('D', 'Minor7')]
-        If no notes inside, return [None, None]
+        Detect the two half-bar chords for this bar.
 
-        NOTE: this function only support 4/4 bars for now
+        Splits all non-drum notes into the first half (onset < 24) and the
+        second half (onset >= 24) and runs chord detection on each group.
+
+        Returns
+        -------
+        List[Optional[Chord]]
+            A two-element list ``[chord_1, chord_2]``.  Each element is a
+            :class:`~remi_z.chord.Chord` instance, or ``None`` if no chord
+            could be detected for that half.
+
+            Example: ``[Chord('C', ''), Chord('D', 'm7')]``
+
+        Notes
+        -----
+        Only 4/4 bars are supported (position 24 is the half-bar boundary).
         """
         notes = self.get_all_notes(include_drum=False)
 
@@ -518,6 +758,23 @@ class Bar:
         return [chord_1, chord_2]
 
     def get_phrases(self, with_bar_end=False) -> List[str]:
+        """
+        Return each track's REMI-z token sequence as a list of strings.
+
+        Each element is the space-joined token sequence for one track
+        (without the ``b-1`` bar-end token unless ``with_bar_end=True``).
+
+        Parameters
+        ----------
+        with_bar_end : bool, optional
+            If ``True``, append a ``'b-1'`` string as the final element
+            (default ``False``).
+
+        Returns
+        -------
+        List[str]
+            One string per track, plus optionally ``'b-1'`` at the end.
+        """
         res = []
         for track_id, track in self.tracks.items():
             track_seq = track.to_remiz_seq(with_velocity=False)

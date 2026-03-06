@@ -20,12 +20,31 @@ from .keys_normalization import detect_key
 
 
 class MultiTrack:
+    """
+    A complete multi-instrument music piece represented as a sequence of bars.
+
+    This is the top-level container in the REMI-z hierarchy:
+    ``MultiTrack → Bar → Track → Note``.
+
+    Attributes
+    ----------
+    bars : List[Bar]
+        Ordered list of Bar objects that make up the piece.
+    time_signatures : List[Tuple[int, int]]
+        Deduplicated set of time signatures present across all bars.
+    tempos : List[float]
+        Deduplicated set of tempos (BPM) present across all bars.
+    ts_dict : dict
+        Dictionary mapping time-signature tokens to ``(numerator, denominator)``
+        tuples, loaded from ``dict_time_signature.yaml``.
+    """
+
     def __init__(self, bars: List[Bar]):
         """
-        Args:
-            bars: List of Bar objects
-            pitch_shift: The pitch shift value. None means not detected.
-            is_major: The major/minor key information. None means not detected.
+        Parameters
+        ----------
+        bars : List[Bar]
+            Ordered list of Bar objects that make up the piece.
         """
         # Parameters check
         assert isinstance(bars, list), "bars must be a list"
@@ -39,6 +58,12 @@ class MultiTrack:
         self.ts_dict = read_yaml(ts_fp)
 
     def update_ts_and_tempo(self):
+        """
+        Recompute ``self.time_signatures`` and ``self.tempos`` from the current bars.
+
+        Call this after any in-place modification of bar tempo or time-signature
+        values to keep the summary attributes in sync.
+        """
         # Collate time signature and tempo info
         self.time_signatures = set()
         self.tempos = set()
@@ -122,12 +147,21 @@ class MultiTrack:
 
         return pitch_shift
 
-    def shift_pitch(self, pitch_shift, track_id: int = None):
+    def shift_pitch(self, pitch_shift: int, track_id: int = None):
         """
-        Shift pitch for all notes
-        """
+        Transpose all non-drum notes by a fixed number of semitones.
 
-        """ Apply the pitch shift to the notes """
+        Pitches that drop below 0 are wrapped up by one octave (+12).
+        Drum tracks are always skipped.
+
+        Parameters
+        ----------
+        pitch_shift : int
+            Semitones to add (positive = up, negative = down).
+        track_id : int, optional
+            If given, only the track with this instrument ID is transposed.
+            ``None`` (default) transposes all non-drum tracks.
+        """
         for bar in self.bars:
             for inst_id, track in bar.tracks.items():
                 if track.is_drum:
@@ -338,7 +372,17 @@ class MultiTrack:
     @classmethod
     def from_remiz_seq(cls, remiz_seq: List[str]):
         """
-        Create a MultiTrack object from a remiz sequence.
+        Create a MultiTrack from a REMI-z token list.
+
+        Parameters
+        ----------
+        remiz_seq : List[str]
+            Tokenized REMI-z sequence.  Bar boundaries are marked by ``'b-1'``
+            tokens.
+
+        Returns
+        -------
+        MultiTrack
         """
         assert isinstance(remiz_seq, list), "remiz_seq must be a list"
 
