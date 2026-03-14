@@ -30,12 +30,16 @@ class Chord:
     Quality strings match the keys of the `chords` dict (e.g., '', 'm', 'M7', 'm7b5').
     """
 
-    def __init__(self, root: str, quality: str):
+    def __init__(self, root: str, quality: str, bass: Optional[str] = None):
         self.root = root
         self.quality = quality
+        self.bass = bass  # None means bass == root
 
     def __str__(self) -> str:
-        return f"{self.root}{self.quality}"
+        name = f"{self.root}{self.quality}"
+        if self.bass is not None and self.bass != self.root:
+            return f"{name}/{self.bass}"
+        return name
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -83,7 +87,8 @@ def detect_chord_from_pitch_list(note_list: List[int]) -> Optional[Chord]:
 
     note_ints = set(n % 12 for n in note_list)
 
-    suspected_root_int = min(note_list) % 12
+    bass_int = min(note_list) % 12
+    suspected_root_int = bass_int
 
     if len(note_ints) < 2:
         return None
@@ -115,7 +120,10 @@ def detect_chord_from_pitch_list(note_list: List[int]) -> Optional[Chord]:
         return None
 
     root_int, chord_type = best_match
-    return Chord(root=note_id_to_note_name[root_int], quality=chord_type)
+    bass_name = note_id_to_note_name[bass_int]
+    root_name = note_id_to_note_name[root_int]
+    bass = bass_name if bass_name != root_name else None
+    return Chord(root=root_name, quality=chord_type, bass=bass)
 
 
 def generate_chord_notes(chord_root_name: str, chord_type: str) -> List[str]:

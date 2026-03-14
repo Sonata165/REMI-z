@@ -793,7 +793,8 @@ class MultiTrack:
         self, include_drum=True, of_insts: List[int] = None
     ) -> List[Note]:
         """
-        Get all notes in the MultiTrack.
+        Deprecated. Get all notes in the MultiTrack. 
+        Please use get_all_notes_by_bar() instead, which will return a list of list of notes, with each inner list representing the notes in a bar. This will be more useful for most cases, as it will keep the temporal structure of the music.
         """
         all_notes = []
         for bar in self.bars:

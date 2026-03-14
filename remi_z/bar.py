@@ -706,12 +706,15 @@ class Bar:
               highest average pitch.
             - ``'hi_note'`` — return the highest-pitched note at each
               onset position across all non-drum tracks.
+            - ``'hi_note_dur'`` — like ``'hi_note'``, but also respects
+              note duration: if a candidate note starts before the
+              previous selected note has finished, it is dropped.
 
         Returns
         -------
         List[Note]
         """
-        assert mel_def in ["hi_track", "hi_note"]
+        assert mel_def in ["hi_track", "hi_note", "hi_note_dur"]
 
         if mel_def == "hi_track":
             track_list = list(self.tracks.values())
@@ -726,6 +729,26 @@ class Bar:
                 if note.onset != cur_pos:
                     cur_pos = note.onset
                     melody_notes.append(note)
+            return melody_notes
+        elif mel_def == "hi_note_dur":
+            all_notes = self.get_all_notes(include_drum=False)
+
+            # Pick the highest-pitched note at each onset position
+            onset_to_hi: Dict[int, Note] = {}
+            for note in all_notes:
+                if note.onset not in onset_to_hi or note.pitch > onset_to_hi[note.onset].pitch:
+                    onset_to_hi[note.onset] = note
+
+            # Drop any note whose onset falls before the previous note has finished
+            melody_notes = []
+            prev_end = -1
+            for onset in sorted(onset_to_hi):
+                note = onset_to_hi[onset]
+                if onset < prev_end:
+                    continue
+                melody_notes.append(note)
+                prev_end = onset + note.duration
+
             return melody_notes
 
     def get_chord(self):
