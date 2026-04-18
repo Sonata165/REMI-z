@@ -117,6 +117,14 @@ class MultiTrack:
                     for note in track.notes:
                         note.velocity = velocity
 
+    def set_instrument(self, track_name:str, new_inst_id: int):
+        '''
+        When in the multi-instance for same program ID setting,
+        Assign new instrument id according to the track name. 
+        '''
+        for bar in self.bars:
+            bar.assign_instrument(track_name, new_inst_id)
+
     def key_norm(self):
         """
         Normalize the pitch of all notes in the MultiTrack object.
@@ -314,10 +322,6 @@ class MultiTrack:
         # Fill time signature and tempo info to the first pos of each bar
         pos_info = fill_pos_ts_and_tempo_(pos_info)
 
-        # # Determine pitch normalization and major/minor info
-        # _, is_major, pitch_shift = midi_encoder.normalize_pitch(pos_info) # Can make error some times. Not sure about direction of pitch shift yet.
-        # # If apply this pitch shift to the original MIDI, the key will be C major or A minor
-
         # Generate bar sequences and note sequences
         bar_seqs = []
         bar_id_prev_pos = -1
@@ -367,7 +371,13 @@ class MultiTrack:
 
             bar_id_prev_pos = bar_id
 
-        return cls(bars=bar_seqs)
+            # Save filename
+            fn = os.path.basename(midi_fp)
+
+        ret = cls(bars=bar_seqs)
+        ret.fn = fn
+
+        return ret
 
     @classmethod
     def from_remiz_seq(cls, remiz_seq: List[str]):

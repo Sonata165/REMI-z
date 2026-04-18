@@ -853,3 +853,12 @@ class Bar:
         self.tracks = {}
         for track in track_list:
             self.tracks[track.inst_id] = track
+
+    def assign_instrument(self, track_name:str, new_inst_id:int):
+        """
+        Assign an instrument ID to a track based on its name.
+        """
+        for inst_id, track in self.tracks.items():
+            if isinstance(inst_id, str) and inst_id == track_name:
+                self.change_instrument(inst_id, new_inst_id)
+                break

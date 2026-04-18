@@ -100,8 +100,6 @@ class MidiEncoder(object):
 
         insts = midi_obj.instruments
 
-        
-
         for inst_idx, inst in enumerate(insts):
             if tracks is not None and inst_idx not in tracks:
                 continue
@@ -113,10 +111,15 @@ class MidiEncoder(object):
 
             prog_id = 128 if inst.is_drum else int(inst.program)
 
+            # Overwrite prog_id if 'instrument_X' appear in track name
+            if 'instrument_' in inst.name.lower():
+                inst_id_str = inst.name.split('_')[-1]
+                prog_id = int(inst_id_str) if inst_id_str.isdigit() else prog_id
+
             if multi_instance_same_program_support is False:
                 inst_id = prog_id
             else:
-                inst_id = (prog_id, inst_idx)
+                inst_id = (prog_id, inst.name)
 
             notes = inst.notes
             for note in notes:
