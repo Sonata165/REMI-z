@@ -4,3 +4,4 @@ from .track import Track
 from .bar import Bar, deduplicate_notes
 from .multitrack import MultiTrack, save_remiz_str_to_midi
 from .chord import detect_chord_from_pitch_list
+from .note_abs import NoteAbs, NoteAbsSeq
