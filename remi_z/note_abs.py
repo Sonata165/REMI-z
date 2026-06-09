@@ -97,12 +97,16 @@ class NoteAbsSeq:
             onset and offset are in seconds; duration is derived as offset - onset.
             Times are rounded to the nearest millisecond (0.001 s).
         """
+        if triplets and len(triplets) > 0:
+            # Ensure pitch is int
+            assert isinstance(triplets[0][2], int), "pitch must be an integer"
+        
         notes = []
         for onset, offset, pitch in triplets:
             onset = round(float(onset), 3)
             offset = round(float(offset), 3)
             duration = round(offset - onset, 3)
-            notes.append(NoteAbs(onset=onset, duration=duration, pitch=int(pitch)))
+            notes.append(NoteAbs(onset=onset, duration=duration, pitch=pitch))
         return cls(notes)
 
     def __str__(self) -> str:
