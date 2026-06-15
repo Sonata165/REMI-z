@@ -110,7 +110,7 @@ class NoteAbsSeq:
         return cls(notes)
 
     def __str__(self) -> str:
-        return "NoteAbsSeq: [" + " ".join([note.get_note_name() for note in self.notes]) + "]"
+        return f"NoteAbsSeq of {len(self.notes)} notes: [" + " ".join([note.get_note_name() for note in self.notes]) + "]"
 
     def __repr__(self) -> str:
         return self.__str__()
