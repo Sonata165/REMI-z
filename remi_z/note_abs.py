@@ -107,6 +107,7 @@ class NoteAbsSeq:
             offset = round(float(offset), 3)
             duration = round(offset - onset, 3)
             notes.append(NoteAbs(onset=onset, duration=duration, pitch=pitch))
+        notes.sort()
         return cls(notes)
 
     def __str__(self) -> str:
