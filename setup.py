@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 import os
 
 
-version = '0.7.0'
+version = '0.7.1'
 
 readme_path = 'Readme.md'
 long_description = open(readme_path, encoding='utf-8').read() if os.path.exists(readme_path) else ""

@@ -4,7 +4,7 @@ from .note import midi_pitch_to_note_name
 
 
 class NoteAbs:
-    def __init__(self, onset: float, duration: float, pitch: int, velocity: int = 64):
+    def __init__(self, onset: float, duration: float, pitch: int, velocity: int = 96):
         """
         Parameters
         ----------
@@ -15,7 +15,7 @@ class NoteAbs:
         pitch : int
             MIDI pitch [0, 127].
         velocity : int
-            MIDI velocity [0, 127]. Default: 64.
+            MIDI velocity [0, 127]. Default: 96.
         """
         assert isinstance(pitch, int), "pitch must be an integer"
         assert isinstance(velocity, int), "velocity must be an integer"
