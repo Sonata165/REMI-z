@@ -56,13 +56,17 @@ class NoteAbs:
 class NoteAbsSeq:
     """
     A sequence of NoteAbs objects (absolute timing in seconds).
+    Can be used to handle performance MIDI, i.e., absolute timing, no time signature, tempo, downbeat information
+
+    Assume all notes are from a single instrument.
+    Support multi-channel MIDI. Notes from different channels can be merged into a single NoteAbsSeq, as long as they are from the same instrument. 
     """
 
     def __init__(self, note_list: List[NoteAbs]):
         self.notes = note_list
 
     @classmethod
-    def from_midi(cls, path: str, instrument_idx: int = 0) -> "NoteAbsSeq":
+    def from_midi(cls, path: str) -> "NoteAbsSeq":
         """
         Load a NoteAbsSeq from a MIDI file.
 
@@ -70,13 +74,19 @@ class NoteAbsSeq:
         ----------
         path : str
             Path to the MIDI file.
-        instrument_idx : int
-            Index of the instrument track to load. Default: 0.
         """
         import pretty_midi
 
         midi = pretty_midi.PrettyMIDI(path)
+
+        if len(midi.instruments) == 0:
+            raise ValueError(f"No notes found in MIDI file {path}")
+        elif len(midi.instruments) > 1:
+            raise ValueError(f"Multiple instruments found in MIDI file {path}. Please specify instrument_idx.")
+
+        instrument_idx = 0
         instrument = midi.instruments[instrument_idx]
+
         notes = []
         for n in instrument.notes:
             onset = round(n.start, 3)
@@ -99,7 +109,8 @@ class NoteAbsSeq:
         """
         if triplets and len(triplets) > 0:
             # Ensure pitch is int
-            assert isinstance(triplets[0][2], int), "pitch must be an integer"
+            if not isinstance(triplets[0][2], int):
+                raise ValueError("Pitch must be an integer in triplets.")
         
         notes = []
         for onset, offset, pitch in triplets:
