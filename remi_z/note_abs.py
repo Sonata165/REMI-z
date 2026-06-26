@@ -66,7 +66,7 @@ class NoteAbsSeq:
         self.notes = note_list
 
     @classmethod
-    def from_midi(cls, path: str) -> "NoteAbsSeq":
+    def from_midi(cls, path: str, merge_tracks_with_same_id: bool = False) -> "NoteAbsSeq":
         """
         Load a NoteAbsSeq from a MIDI file.
 
@@ -74,6 +74,8 @@ class NoteAbsSeq:
         ----------
         path : str
             Path to the MIDI file.
+        merge_tracks_with_same_id : bool
+            If True, merge tracks with the same instrument ID into a single track. Default: False
         """
         import pretty_midi
 
@@ -82,7 +84,14 @@ class NoteAbsSeq:
         if len(midi.instruments) == 0:
             raise ValueError(f"No notes found in MIDI file {path}")
         elif len(midi.instruments) > 1:
-            raise ValueError(f"Multiple instruments found in MIDI file {path}. Please specify instrument_idx.")
+            if not merge_tracks_with_same_id:
+                raise ValueError(f"Multiple instruments found in MIDI file {path}. Please specify instrument_idx.")
+            else:
+                # Merge all instruments into a single instrument
+                merged_instrument = pretty_midi.Instrument(program=0)
+                for inst in midi.instruments:
+                    merged_instrument.notes.extend(inst.notes)
+                midi.instruments = [merged_instrument]
 
         instrument_idx = 0
         instrument = midi.instruments[instrument_idx]
