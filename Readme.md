@@ -113,6 +113,38 @@ bar.get_chord()
 
 ```
 
+**4. Performance MIDI — `NoteStream` & `MultiStream`**
+
+For *performance* MIDI (absolute timing in seconds; no bar/time‑signature/tempo
+structure) use `NoteStream` (single track) and `MultiStream` (multi‑track).
+
+```python
+from remi_z import NoteStream, MultiStream
+
+# ── Single track ──────────────────────────────────────────────────────────────
+ns = NoteStream.from_midi("single_track.mid")            # one instrument track
+ns = NoteStream.from_triplet_list([[0.0, 0.5, 60],       # or from [onset, offset, pitch]
+                                   [0.5, 1.0, 62]])
+triplets = ns.to_triplet_list()                          # -> [[onset, offset, pitch], ...]
+ns.to_midi("single_out.mid", program=0)
+
+# ── Multi-track ───────────────────────────────────────────────────────────────
+ms = MultiStream.from_midi("multitrack.mid", skip_drums=False, dedup=False)
+print(len(ms), ms.programs)        # number of tracks + their GM programs (128 = drums)
+ms.to_midi("multitrack_out.mid")   # one instrument per track, programs restored
+
+# Build from individual tracks (several tracks may share the same program)
+ms = MultiStream.from_note_streams([ns, NoteStream.from_midi("other.mid")])
+groups = ms.by_program()           # {program: [NoteStream, ...]} (duplicate-safe)
+
+# Flatten all pitched tracks into one deduplicated single-track stream
+flat = ms.flatten()                # drops drums; keeps the longest note per (onset, pitch)
+flat.to_midi("flattened.mid")
+```
+
+> Tip: reading a multi-instrument MIDI directly into one `NoteStream` requires
+> `NoteStream.from_midi(path, merge_tracks=True)`; otherwise use `MultiStream`.
+
 For more examples, see `demo.ipynb`.
 
 ---
@@ -133,6 +165,11 @@ For more examples, see `demo.ipynb`.
   - Support for **multiple tracks with the same program ID** (e.g., multiple piano parts).
   - Piano‑roll conversion and content sequences for modeling tasks.
 
+- **Performance MIDI (absolute timing)**
+  - `NoteStream` — a single instrument track of absolute‑time notes (seconds), with `from_midi` / `from_triplet_list` / `to_midi` / `to_triplet_list`; carries its program in `inst_id` (128 = drums).
+  - `MultiStream` — an ordered collection of `NoteStream` tracks (handles multiple tracks of the same program), with `from_midi` / `from_note_streams` / `to_midi`, `by_program()` grouping, and `flatten()` to a single deduplicated track.
+  - Ideal for transcription ground truth and onset/offset/pitch workflows where bar/tempo structure isn't needed.
+
 - **Harmony Tools**
   - Bar‑wise half‑bar chord detection (`Bar.get_chord()`).
   - Chord objects and chord sequences (`Chord`, `ChordSeq`) with REMI‑z pitch token generation.
@@ -141,6 +178,7 @@ For more examples, see `demo.ipynb`.
 
 ### Updates
 
+- **2026‑06‑29** – Add **performance‑MIDI** support: `NoteStream` (single‑track, absolute‑time notes) and `MultiStream` (multi‑track), with MIDI/triplet I/O, drum skipping, duplicate‑note removal, and flattening to a single track.
 - **2025‑09‑09** – Support reading and writing MIDIs containing multiple tracks of the same program ID.
 
 ---
