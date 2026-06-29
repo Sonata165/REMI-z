@@ -207,7 +207,9 @@ class NoteStream:
         """
         import pretty_midi
 
-        midi = pretty_midi.PrettyMIDI(initial_tempo=tempo, resolution=10000)
+        # resolution 500 ticks/beat = 1 ms at 120 BPM (note times are ms-rounded),
+        # low enough that long recordings stay under pretty_midi's 10M-tick limit.
+        midi = pretty_midi.PrettyMIDI(initial_tempo=tempo, resolution=500)
         instrument = pretty_midi.Instrument(program=program)
         for note in self.notes:
             instrument.notes.append(
@@ -358,7 +360,9 @@ class MultiStream:
         """
         import pretty_midi
 
-        midi = pretty_midi.PrettyMIDI(initial_tempo=tempo, resolution=10000)
+        # resolution 500 ticks/beat = 1 ms at 120 BPM (note times are ms-rounded),
+        # low enough that long recordings stay under pretty_midi's 10M-tick limit.
+        midi = pretty_midi.PrettyMIDI(initial_tempo=tempo, resolution=500)
         for st in self.streams:
             is_drum = st.inst_id == 128
             program = 0 if is_drum else st.inst_id
