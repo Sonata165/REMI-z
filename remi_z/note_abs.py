@@ -111,7 +111,7 @@ class NoteStream:
         for n in instrument.notes:
             onset = round(n.start, 3)
             offset = round(n.end, 3)
-            duration = round(offset - onset, 3)
+            duration = max(round(offset - onset, 3), 0.001)  # Ensure duration is at least 1 ms
             notes.append(NoteAbs(onset=onset, duration=duration, pitch=n.pitch, velocity=n.velocity))
         
         if dedup:
