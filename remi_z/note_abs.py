@@ -150,7 +150,7 @@ class NoteStream:
         for onset, offset, pitch in triplets:
             onset = round(float(onset), 3)
             offset = round(float(offset), 3)
-            duration = round(offset - onset, 3)
+            duration = max(round(offset - onset, 3), 0.001) # Ensure duration is at least 1 ms
             notes.append(NoteAbs(onset=onset, duration=duration, pitch=pitch))
         notes.sort()
         return cls(notes)
