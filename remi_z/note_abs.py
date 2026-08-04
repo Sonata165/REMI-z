@@ -1,6 +1,50 @@
+import collections
 from typing import List, Tuple
 
 from .note import midi_pitch_to_note_name
+
+
+def _apply_sustain_control_changes(instrument, sustain_num: int = 64) -> None:
+    """Extend note offsets over the sustain pedal (CC64), in place.
+
+    While the pedal is held (CC ``sustain_num`` value >= 64), a released key keeps
+    sounding until either the pedal is lifted or the same pitch is struck again --
+    the standard Onsets & Frames / ``note_seq.apply_sustain_control_changes``
+    convention used by piano-AMT. Only ``note.end`` is mutated; onsets/pitches are
+    untouched. Operates on one ``pretty_midi.Instrument`` (uses its
+    ``control_changes``). Verified to reproduce MAPS' pedal-extended .txt offsets
+    to <1 ms.
+    """
+    # Time-ordered events; ties break by priority so at an equal timestamp a
+    # note-off is settled before pedal toggles / note-ons. 1:off 2:on 3:sus-on 4:sus-off.
+    events = []
+    for n in instrument.notes:
+        events.append((n.start, 2, n))
+        events.append((n.end,   1, n))
+    for cc in instrument.control_changes:
+        if cc.number == sustain_num:
+            events.append((cc.time, 3 if cc.value >= 64 else 4, cc))
+    events.sort(key=lambda e: (e[0], e[1]))
+
+    held = collections.defaultdict(list)   # pitch -> notes released while pedal down
+    sustain = False
+    for t, typ, ev in events:
+        if typ == 3:                       # sustain on
+            sustain = True
+        elif typ == 4:                     # sustain off: release everything held
+            sustain = False
+            for p in list(held):
+                for n in held[p]:
+                    n.end = t
+                del held[p]
+        elif typ == 2:                     # note on: retrigger cuts a held same pitch
+            if sustain and ev.pitch in held:
+                for n in held[ev.pitch]:
+                    n.end = t
+                del held[ev.pitch]
+        else:                              # note off: hold if pedal down, else ends now
+            if sustain:
+                held[ev.pitch].append(ev)
 
 
 class NoteAbs:
@@ -68,7 +112,8 @@ class NoteStream:
         self.is_drum = inst_id == 128  # Use 128 to indicate drum instrument
 
     @classmethod
-    def from_midi(cls, path: str, merge_tracks: bool = False, skip_drums: bool = True, dedup: bool = False) -> "NoteStream":
+    def from_midi(cls, path: str, merge_tracks: bool = False, skip_drums: bool = True, dedup: bool = False,
+                  pedal_extend: bool = False) -> "NoteStream":
         """
         Load a NoteStream from a MIDI file.
 
@@ -82,10 +127,19 @@ class NoteStream:
             If True, skip drum tracks in merge. Default: True
         dedup : bool
             If True, remove duplicate notes after merging. Default: False
+        pedal_extend : bool
+            If True, extend each note's offset over the sustain pedal (CC64) before
+            reading it (standard piano-AMT convention); only offsets change, not
+            onsets/pitches. Applied per source instrument (using that instrument's
+            own control changes) prior to any merge. Default: False
         """
         import pretty_midi
 
         midi = pretty_midi.PrettyMIDI(path)
+
+        if pedal_extend:
+            for inst in midi.instruments:
+                _apply_sustain_control_changes(inst)
 
         if len(midi.instruments) == 0:
             raise ValueError(f"No notes found in MIDI file {path}")
@@ -234,6 +288,47 @@ def _dedup_by_onset_pitch(notes: List[NoteAbs]) -> List[NoteAbs]:
     return list(unique.values())
 
 
+def _adjust_offset_overlap(notes: List[NoteAbs], eps: float = 0.001) -> List[NoteAbs]:
+    """Return copies of ``notes`` with same-pitch offset overlaps removed.
+
+    MIDI Note-On/Note-Off events carry only ``(channel, pitch)`` -- they do not
+    tag which Note-Off closes which Note-On.  So two notes of the same pitch whose
+    intervals overlap (in particular one fully nested inside another) cannot be
+    round-tripped through a MIDI file: on parse the offsets get rematched and the
+    intended pairing is lost.  To keep a ``NoteStream`` always faithfully
+    serialisable, this shortens each note's offset to at most ``eps`` seconds
+    before the onset of the *next* same-pitch note, so same-pitch intervals never
+    overlap.
+
+    Only offsets are shortened, never lengthened; onsets, pitches and velocities
+    are untouched, and the input objects are not mutated (new ``NoteAbs`` are
+    returned).  Notes are assumed ms-aligned and already deduplicated by
+    ``(onset, pitch)`` (so same-pitch onsets are distinct and differ by >= eps).
+    In the degenerate case where the next same-pitch onset is only ``eps`` later,
+    the offset is set equal to that onset (a zero-gap "touch"), which is still
+    unambiguous and keeps the duration >= eps.
+    """
+    by_pitch = collections.defaultdict(list)
+    for note in notes:
+        by_pitch[note.pitch].append(note)
+
+    adjusted: List[NoteAbs] = []
+    for group in by_pitch.values():
+        group.sort(key=lambda n: n.onset)
+        for i, cur in enumerate(group):
+            duration = cur.duration
+            if i + 1 < len(group):
+                nxt_onset = group[i + 1].onset
+                cap = round(nxt_onset - eps, 3)     # eps before next same-pitch onset
+                if cap <= cur.onset:                # onsets only eps apart: touch instead
+                    cap = nxt_onset
+                if cur.offset > cap:
+                    duration = round(cap - cur.onset, 3)
+            adjusted.append(NoteAbs(onset=cur.onset, duration=duration,
+                                    pitch=cur.pitch, velocity=cur.velocity))
+    return adjusted
+
+
 class MultiStream:
     """A multi-track performance: an ordered collection of ``NoteStream`` tracks.
 
@@ -317,7 +412,8 @@ class MultiStream:
         """Program id of each track, in track order (128 = drums)."""
         return [st.inst_id for st in self.streams]
 
-    def flatten(self, include_drum: bool = False) -> NoteStream:
+    def flatten(self, include_drum: bool = False,
+                adjust_offset_overlap: bool = True) -> NoteStream:
         """Collapse all tracks into a single program-0 NoteStream.
 
         Instrument information is dropped.  Notes sharing the same (onset, pitch)
@@ -327,11 +423,20 @@ class MultiStream:
         ----------
         include_drum : bool
             If False (default), drum tracks (inst_id == 128) are excluded.
+        adjust_offset_overlap : bool
+            If True (default), after dedup shorten offsets so that no note
+            overlaps a later note of the same pitch (see
+            :func:`_adjust_offset_overlap`).  This guarantees the resulting
+            NoteStream can be written to MIDI and read back unchanged; merging
+            tracks routinely produces same-pitch overlaps that MIDI cannot
+            represent faithfully.
         """
         notes = [note for st in self.streams
                  if include_drum or not st.is_drum
                  for note in st.notes]
         notes = _dedup_by_onset_pitch(notes)
+        if adjust_offset_overlap:
+            notes = _adjust_offset_overlap(notes)
         notes.sort()
         return NoteStream(notes, inst_id=0)
 
