@@ -1,10 +1,8 @@
 
 import os
 import sys
-dirof = os.path.dirname
-sys.path.insert(0, dirof(__file__))
 
-from utils import read_yaml
+from remi_z.utils import read_yaml
 
 
 def main():
