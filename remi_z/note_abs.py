@@ -246,7 +246,7 @@ class NoteStream:
         """Return [[onset, offset, pitch], ...] for each note."""
         return [[note.onset, round(note.offset, 3), note.pitch] for note in self.notes]
 
-    def to_midi(self, path: str, program: int = 0, tempo: float = 120.0):
+    def to_midi(self, path: str, program: int = 0, tempo: float = 120.0, play_rate: float = 1.0, pitch_shift: int = 0) -> None:
         """
         Write the sequence to a MIDI file.
 
@@ -258,6 +258,10 @@ class NoteStream:
             General MIDI program number [0, 127]. Default: 0 (Acoustic Grand Piano).
         tempo : float
             Tempo in BPM. Default: 120.0.
+        play_rate : float
+            Playback rate. Default: 1.0.
+        pitch_shift : int
+            Pitch shift in semitones. Default: 0.
         """
         import pretty_midi
 
@@ -269,9 +273,9 @@ class NoteStream:
             instrument.notes.append(
                 pretty_midi.Note(
                     velocity=note.velocity,
-                    pitch=note.pitch,
-                    start=note.onset,
-                    end=note.offset,
+                    pitch=note.pitch + pitch_shift,
+                    start=note.onset / play_rate,
+                    end=note.offset / play_rate,
                 )
             )
         midi.instruments.append(instrument)
