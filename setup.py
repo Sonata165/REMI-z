@@ -17,6 +17,19 @@ setup(
     long_description=open('Readme.md').read(),  # 从 Readme.md 加载详细描述
     long_description_content_type='text/markdown',  # README 格式
     url='https://github.com/Sonata165/REMI-z',  # 项目主页 URL
+    # Declares the flat layout explicitly: the package root IS the project root.
+    # Semantically a no-op (that is already the default), but it is what makes
+    # `pip install -e .` produce an IDE-resolvable editable install. setuptools>=64
+    # picks its editable strategy in `_select_strategy`:
+    #     if set(package_dir) == {""} and has_simple_layout or is_compat_mode:
+    #         return _StaticPth(...)   # a .pth holding a plain directory path
+    #     return _TopLevelFinder(...)  # a .pth holding `import ..._finder; install()`
+    # Without this line package_dir == {} != {""}, so we got _TopLevelFinder — an
+    # import HOOK registered at interpreter start. That works at runtime but is
+    # invisible to static analysers (Pylance/Pyright never execute .pth files, they
+    # only honour ones containing a path), which is why VSCode reported every
+    # `remi_z` import as unresolved while the code ran fine.
+    package_dir={'': '.'},
     packages=find_packages(),  # 自动查找所有包含 `__init__.py` 的包
     install_requires=[  # 项目的依赖项
         'miditoolkit>=1.0.1',
