@@ -3,6 +3,7 @@ from typing import List, Tuple
 
 from .note import midi_pitch_to_note_name
 
+CHROMATIC_PERCUSSION_PROG_IDS = {8, 9, 10, 11, 12, 13, 14, 15}
 
 def _apply_sustain_control_changes(instrument, sustain_num: int = 64) -> None:
     """Extend note offsets over the sustain pedal (CC64), in place.
@@ -20,29 +21,29 @@ def _apply_sustain_control_changes(instrument, sustain_num: int = 64) -> None:
     events = []
     for n in instrument.notes:
         events.append((n.start, 2, n))
-        events.append((n.end,   1, n))
+        events.append((n.end, 1, n))
     for cc in instrument.control_changes:
         if cc.number == sustain_num:
             events.append((cc.time, 3 if cc.value >= 64 else 4, cc))
     events.sort(key=lambda e: (e[0], e[1]))
 
-    held = collections.defaultdict(list)   # pitch -> notes released while pedal down
+    held = collections.defaultdict(list)  # pitch -> notes released while pedal down
     sustain = False
     for t, typ, ev in events:
-        if typ == 3:                       # sustain on
+        if typ == 3:  # sustain on
             sustain = True
-        elif typ == 4:                     # sustain off: release everything held
+        elif typ == 4:  # sustain off: release everything held
             sustain = False
             for p in list(held):
                 for n in held[p]:
                     n.end = t
                 del held[p]
-        elif typ == 2:                     # note on: retrigger cuts a held same pitch
+        elif typ == 2:  # note on: retrigger cuts a held same pitch
             if sustain and ev.pitch in held:
                 for n in held[ev.pitch]:
                     n.end = t
                 del held[ev.pitch]
-        else:                              # note off: hold if pedal down, else ends now
+        else:  # note off: hold if pedal down, else ends now
             if sustain:
                 held[ev.pitch].append(ev)
 
@@ -103,7 +104,7 @@ class NoteStream:
     Can be used to handle performance MIDI, i.e., absolute timing, no time signature, tempo, downbeat information
 
     Assume all notes are from a single instrument.
-    Support multi-channel MIDI. Notes from different channels can be merged into a single NoteStream, as long as they are from the same instrument. 
+    Support multi-channel MIDI. Notes from different channels can be merged into a single NoteStream, as long as they are from the same instrument.
     """
 
     def __init__(self, note_list: List[NoteAbs], inst_id: int = 0):
@@ -112,8 +113,15 @@ class NoteStream:
         self.is_drum = inst_id == 128  # Use 128 to indicate drum instrument
 
     @classmethod
-    def from_midi(cls, path: str, merge_tracks: bool = False, skip_drums: bool = True, dedup: bool = False,
-                  pedal_extend: bool = False) -> "NoteStream":
+    def from_midi(
+        cls,
+        path: str,
+        merge_tracks: bool = False,
+        skip_drums: bool = True,
+        dedup: bool = False,
+        pedal_extend: bool = False,
+        normalize_chrom_perc_dur: float | None = None,
+    ) -> "NoteStream":
         """
         Load a NoteStream from a MIDI file.
 
@@ -132,6 +140,8 @@ class NoteStream:
             reading it (standard piano-AMT convention); only offsets change, not
             onsets/pitches. Applied per source instrument (using that instrument's
             own control changes) prior to any merge. Default: False
+        normalize_chrom_perc_dur : float | None
+            If not None, normalize all note durations to this value for chromatic percussion. Default: None
         """
         import pretty_midi
 
@@ -145,7 +155,9 @@ class NoteStream:
             raise ValueError(f"No notes found in MIDI file {path}")
         elif len(midi.instruments) > 1:
             if not merge_tracks:
-                raise ValueError(f"Multiple instruments found in MIDI file {path}. Please specify instrument_idx.")
+                raise ValueError(
+                    f"Multiple instruments found in MIDI file {path}. Please specify instrument_idx."
+                )
             else:
                 # Merge all instruments into a single instrument
                 merged_instrument = pretty_midi.Instrument(program=0)
@@ -161,13 +173,26 @@ class NoteStream:
         if instrument.is_drum:
             prog_id = 128  # Use 128 to indicate drum instrument
 
+        if prog_id in CHROMATIC_PERCUSSION_PROG_IDS:
+            normalize_dur = normalize_chrom_perc_dur
+        else:
+            normalize_dur = None
+
         notes = []
         for n in instrument.notes:
             onset = round(n.start, 3)
             offset = round(n.end, 3)
-            duration = max(round(offset - onset, 3), 0.001)  # Ensure duration is at least 1 ms
-            notes.append(NoteAbs(onset=onset, duration=duration, pitch=n.pitch, velocity=n.velocity))
-        
+            duration = max(
+                round(offset - onset, 3), 0.001
+            )  # Ensure duration is at least 1 ms
+            if normalize_dur is not None:
+                duration = normalize_dur
+            notes.append(
+                NoteAbs(
+                    onset=onset, duration=duration, pitch=n.pitch, velocity=n.velocity
+                )
+            )
+
         if dedup:
             # Remove notes with same onset and pitch
             unique_notes = {}
@@ -180,7 +205,7 @@ class NoteStream:
                     if note.duration > unique_notes[key].duration:
                         unique_notes[key] = note
             notes = list(unique_notes.values())
-        
+
         notes.sort()
         return cls(notes, inst_id=prog_id)
 
@@ -199,18 +224,24 @@ class NoteStream:
             # Ensure pitch is int
             if not isinstance(triplets[0][2], int):
                 raise ValueError("Pitch must be an integer in triplets.")
-        
+
         notes = []
         for onset, offset, pitch in triplets:
             onset = round(float(onset), 3)
             offset = round(float(offset), 3)
-            duration = max(round(offset - onset, 3), 0.001) # Ensure duration is at least 1 ms
+            duration = max(
+                round(offset - onset, 3), 0.001
+            )  # Ensure duration is at least 1 ms
             notes.append(NoteAbs(onset=onset, duration=duration, pitch=pitch))
         notes.sort()
         return cls(notes)
 
     def __str__(self) -> str:
-        return f"NoteStream of {len(self.notes)} notes: [" + " ".join([note.get_note_name() for note in self.notes]) + "]"
+        return (
+            f"NoteStream of {len(self.notes)} notes: ["
+            + " ".join([note.get_note_name() for note in self.notes])
+            + "]"
+        )
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -246,7 +277,14 @@ class NoteStream:
         """Return [[onset, offset, pitch], ...] for each note."""
         return [[note.onset, round(note.offset, 3), note.pitch] for note in self.notes]
 
-    def to_midi(self, path: str, program: int = 0, tempo: float = 120.0, play_rate: float = 1.0, pitch_shift: int = 0) -> None:
+    def to_midi(
+        self,
+        path: str,
+        program: int = 0,
+        tempo: float = 120.0,
+        play_rate: float = 1.0,
+        pitch_shift: int = 0,
+    ) -> None:
         """
         Write the sequence to a MIDI file.
 
@@ -323,13 +361,19 @@ def _adjust_offset_overlap(notes: List[NoteAbs], eps: float = 0.001) -> List[Not
             duration = cur.duration
             if i + 1 < len(group):
                 nxt_onset = group[i + 1].onset
-                cap = round(nxt_onset - eps, 3)     # eps before next same-pitch onset
-                if cap <= cur.onset:                # onsets only eps apart: touch instead
+                cap = round(nxt_onset - eps, 3)  # eps before next same-pitch onset
+                if cap <= cur.onset:  # onsets only eps apart: touch instead
                     cap = nxt_onset
                 if cur.offset > cap:
                     duration = round(cap - cur.onset, 3)
-            adjusted.append(NoteAbs(onset=cur.onset, duration=duration,
-                                    pitch=cur.pitch, velocity=cur.velocity))
+            adjusted.append(
+                NoteAbs(
+                    onset=cur.onset,
+                    duration=duration,
+                    pitch=cur.pitch,
+                    velocity=cur.velocity,
+                )
+            )
     return adjusted
 
 
@@ -348,8 +392,9 @@ class MultiStream:
         self.streams: List[NoteStream] = list(streams)
 
     @classmethod
-    def from_midi(cls, path: str, skip_drums: bool = False,
-                  dedup: bool = False) -> "MultiStream":
+    def from_midi(
+        cls, path: str, skip_drums: bool = False, dedup: bool = False
+    ) -> "MultiStream":
         """Load a multi-track MIDI: one ``NoteStream`` per instrument track.
 
         Parameters
@@ -374,17 +419,23 @@ class MultiStream:
         for inst in midi.instruments:
             if skip_drums and inst.is_drum:
                 continue
-            prog_id = 128 if inst.is_drum else int(inst.program)   # 128 marks drums
+            prog_id = 128 if inst.is_drum else int(inst.program)  # 128 marks drums
 
             notes = []
             for n in inst.notes:
                 onset = round(n.start, 3)
                 offset = round(n.end, 3)
                 duration = round(offset - onset, 3)
-                if duration <= 0:        # skip zero/negative-length notes
+                if duration <= 0:  # skip zero/negative-length notes
                     continue
-                notes.append(NoteAbs(onset=onset, duration=duration,
-                                     pitch=n.pitch, velocity=n.velocity))
+                notes.append(
+                    NoteAbs(
+                        onset=onset,
+                        duration=duration,
+                        pitch=n.pitch,
+                        velocity=n.velocity,
+                    )
+                )
             if dedup:
                 notes = _dedup_by_onset_pitch(notes)
             if not notes:
@@ -416,8 +467,9 @@ class MultiStream:
         """Program id of each track, in track order (128 = drums)."""
         return [st.inst_id for st in self.streams]
 
-    def flatten(self, include_drum: bool = False,
-                adjust_offset_overlap: bool = True) -> NoteStream:
+    def flatten(
+        self, include_drum: bool = False, adjust_offset_overlap: bool = True
+    ) -> NoteStream:
         """Collapse all tracks into a single program-0 NoteStream.
 
         Instrument information is dropped.  Notes sharing the same (onset, pitch)
@@ -435,9 +487,12 @@ class MultiStream:
             tracks routinely produces same-pitch overlaps that MIDI cannot
             represent faithfully.
         """
-        notes = [note for st in self.streams
-                 if include_drum or not st.is_drum
-                 for note in st.notes]
+        notes = [
+            note
+            for st in self.streams
+            if include_drum or not st.is_drum
+            for note in st.notes
+        ]
         notes = _dedup_by_onset_pitch(notes)
         if adjust_offset_overlap:
             notes = _adjust_offset_overlap(notes)
@@ -455,8 +510,10 @@ class MultiStream:
 
     def __str__(self) -> str:
         n_notes = sum(len(s) for s in self.streams)
-        return (f"MultiStream of {len(self.streams)} tracks, {n_notes} notes "
-                f"(programs: {self.programs})")
+        return (
+            f"MultiStream of {len(self.streams)} tracks, {n_notes} notes "
+            f"(programs: {self.programs})"
+        )
 
     def __repr__(self) -> str:
         return self.__str__()
