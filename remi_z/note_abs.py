@@ -206,6 +206,10 @@ class NoteStream:
                         unique_notes[key] = note
             notes = list(unique_notes.values())
 
+        # Ensure no note overlap if duration is normalized
+        if normalize_dur is not None:
+            notes = _adjust_offset_overlap(notes)
+
         notes.sort()
         return cls(notes, inst_id=prog_id)
 
