@@ -370,14 +370,15 @@ def _adjust_offset_overlap(notes: List[NoteAbs], eps: float = 0.001) -> List[Not
                     cap = nxt_onset
                 if cur.offset > cap:
                     duration = round(cap - cur.onset, 3)
-            adjusted.append(
-                NoteAbs(
-                    onset=cur.onset,
-                    duration=duration,
-                    pitch=cur.pitch,
-                    velocity=cur.velocity,
+            if duration > 0:
+                adjusted.append(
+                    NoteAbs(
+                        onset=cur.onset,
+                        duration=duration,
+                        pitch=cur.pitch,
+                        velocity=cur.velocity,
+                    )
                 )
-            )
     return adjusted
 
 
