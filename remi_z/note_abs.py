@@ -284,7 +284,7 @@ class NoteStream:
     def to_midi(
         self,
         path: str,
-        program: int = 0,
+        program: int | None = None,
         tempo: float = 120.0,
         play_rate: float = 1.0,
         pitch_shift: int = 0,
@@ -306,6 +306,8 @@ class NoteStream:
             Pitch shift in semitones. Default: 0.
         """
         import pretty_midi
+
+        program = program if program is not None else self.inst_id
 
         # resolution 500 ticks/beat = 1 ms at 120 BPM (note times are ms-rounded),
         # low enough that long recordings stay under pretty_midi's 10M-tick limit.
