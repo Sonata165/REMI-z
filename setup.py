@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 import os
 
 
-version = '0.7.3'
+version = '0.7.4'
 
 readme_path = 'Readme.md'
 long_description = open(readme_path, encoding='utf-8').read() if os.path.exists(readme_path) else ""
@@ -14,7 +14,7 @@ setup(
     author='Longshen Ou',  # 作者姓名
     author_email='oulongshen@gmail.com',  # 邮箱地址
     description='Manipulate your MIDI file in bar level, and converting between MIDI and REMI-z format.',
-    long_description=open('Readme.md').read(),  # 从 Readme.md 加载详细描述
+    long_description=long_description,  # 从 Readme.md 加载详细描述
     long_description_content_type='text/markdown',  # README 格式
     url='https://github.com/Sonata165/REMI-z',  # 项目主页 URL
     # Declares the flat layout explicitly: the package root IS the project root.
