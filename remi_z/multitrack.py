@@ -208,7 +208,8 @@ class MultiTrack:
         """
         note_list = self.get_note_list(with_drum=False)
         is_major, pitch_shift = detect_key(note_list)
-        return is_major, pitch_shift
+        # detect_key computes these with numpy; cast so key_norm() leaves Note.pitch a plain int
+        return bool(is_major), int(pitch_shift)
 
     def get_unique_insts(self):
         """
@@ -916,14 +917,56 @@ class MultiTrack:
 
         return mel_notes
 
-    def get_melody(self, mel_def):
+    def get_melody(self, mel_def: str, inst_id: int = 0) -> "MultiTrack":
         """
-        NOTE: This algorithm calculate melody for each bar independently.
+        Extract the melody of every bar as a new MultiTrack in which each bar
+        holds a single Track of melody notes.
+
+        NOTE: This algorithm calculates the melody for each bar independently.
+
+        Parameters
+        ----------
+        mel_def : str
+            Melody definition, passed to ``Bar.get_melody`` for every bar:
+            ``'hi_track'``, ``'hi_note'`` or ``'hi_note_dur'``.
+        inst_id : int, optional
+            GM program number of the melody Track in every bar (default ``0``).
+            The melody can come from different instruments in different bars
+            (or, for ``'hi_note'``, within one bar), so one fixed program is used.
+
+        Returns
+        -------
+        MultiTrack
+            Same number of bars as ``self``, each with the source bar's id,
+            time signature and tempo. Bars with no melody notes (empty, or only
+            drums) have no tracks, like empty bars elsewhere in REMI-z. The notes
+            are new Note objects, so editing the result leaves ``self`` untouched.
         """
-        mel_notes = []
+        assert isinstance(inst_id, int), "inst_id must be an integer"
+        assert 0 <= inst_id <= 127, "inst_id must be in the range of [0, 127]"
+
+        bars = []
         for bar in self.bars:
-            mel_notes.append(bar.get_melody(mel_def))
-        return mel_notes
+            has_pitched_track = any(not track.is_drum for track in bar.tracks.values())
+            mel_notes = bar.get_melody(mel_def) if has_pitched_track else []
+
+            # group by onset: a melody can hold several notes at one onset ('hi_track' on a chordal track)
+            notes_by_onset = {}
+            for note in mel_notes:
+                notes_by_onset.setdefault(note.onset, []).append(
+                    (note.pitch, note.duration, note.velocity)
+                )
+            notes_of_insts = {inst_id: notes_by_onset} if notes_by_onset else {}
+
+            bars.append(
+                Bar(
+                    id=bar.bar_id,
+                    notes_of_insts=notes_of_insts,
+                    time_signature=bar.time_signature,
+                    tempo=bar.tempo,
+                )
+            )
+        return MultiTrack(bars=bars)
 
     def insert_empty_bars_at_front(self, num_bars):
         """

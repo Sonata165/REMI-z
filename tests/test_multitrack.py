@@ -360,3 +360,94 @@ class TestMultiTrackGetContentSeq:
         mt = make_multitrack(n_bars=2)
         seq = mt.get_content_seq()
         assert seq.count("b-1") == 2
+
+
+# ============================================================
+# get_melody
+# ============================================================
+
+class TestMultiTrackGetMelody:
+
+    def make_two_inst_mt(self):
+        # bar 0: piano chord low, strings high; bar 1: empty; bar 2: drums only
+        bars = [
+            make_bar(bar_id=0, notes_of_insts={
+                0: {0: [(48, 12, 64), (52, 12, 64)], 24: [(50, 12, 64)]},
+                48: {0: [(72, 24, 80)], 24: [(74, 12, 80)]},
+            }),
+            make_bar(bar_id=1, notes_of_insts={}),
+            make_bar(bar_id=2, notes_of_insts={128: {0: [(36, 6, 100)]}}, time_signature=(3, 4), tempo=90.0),
+        ]
+        return MultiTrack(bars=bars)
+
+    def test_returns_multitrack_same_bar_count(self):
+        mt = self.make_two_inst_mt()
+        mel = mt.get_melody("hi_note")
+        assert isinstance(mel, MultiTrack)
+        assert len(mel) == len(mt)
+
+    def test_single_track_per_bar(self):
+        mel = self.make_two_inst_mt().get_melody("hi_track")
+        assert list(mel.bars[0].tracks.keys()) == [0]
+
+    def test_inst_id_param(self):
+        mel = self.make_two_inst_mt().get_melody("hi_note", inst_id=73)
+        assert list(mel.bars[0].tracks.keys()) == [73]
+        assert mel.bars[0].tracks[73].inst_id == 73
+
+    def test_hi_track_notes(self):
+        mel = self.make_two_inst_mt().get_melody("hi_track")
+        pitches = [n.pitch for n in mel.bars[0].tracks[0].notes]
+        assert sorted(pitches) == [72, 74]
+
+    def test_hi_note_notes(self):
+        mel = self.make_two_inst_mt().get_melody("hi_note")
+        notes = mel.bars[0].tracks[0].notes
+        assert [(n.onset, n.pitch) for n in notes] == [(0, 72), (24, 74)]
+
+    def test_matches_bar_get_melody(self):
+        mt = self.make_two_inst_mt()
+        for mel_def in ["hi_track", "hi_note", "hi_note_dur"]:
+            mel = mt.get_melody(mel_def)
+            expected = [(n.onset, n.pitch, n.duration, n.velocity) for n in mt.bars[0].get_melody(mel_def)]
+            got = [(n.onset, n.pitch, n.duration, n.velocity) for n in mel.bars[0].tracks[0].notes]
+            assert sorted(got) == sorted(expected), mel_def
+
+    def test_chord_notes_kept(self):
+        # hi_track on a single chordal track: several notes share an onset and must all survive
+        mt = MultiTrack(bars=[make_bar(notes_of_insts={0: {0: [(48, 12, 64), (52, 12, 64), (55, 12, 64)]}})])
+        mel = mt.get_melody("hi_track")
+        assert sorted(n.pitch for n in mel.bars[0].tracks[0].notes) == [48, 52, 55]
+
+    def test_empty_and_drum_only_bars_have_no_track(self):
+        mel = self.make_two_inst_mt().get_melody("hi_track")
+        assert mel.bars[1].tracks == {}
+        assert mel.bars[2].tracks == {}
+
+    def test_bar_metadata_kept(self):
+        mt = self.make_two_inst_mt()
+        mel = mt.get_melody("hi_note")
+        for src, out in zip(mt.bars, mel.bars):
+            assert (out.bar_id, out.time_signature, out.tempo) == (src.bar_id, src.time_signature, src.tempo)
+
+    def test_source_not_modified(self):
+        mt = self.make_two_inst_mt()
+        before = mt.to_remiz_str()
+        mel = mt.get_melody("hi_note")
+        mel.shift_pitch(12)
+        assert mt.to_remiz_str() == before
+
+    def test_bad_inst_id(self):
+        with pytest.raises(AssertionError):
+            self.make_two_inst_mt().get_melody("hi_note", inst_id=128)
+
+    def test_after_key_norm(self):
+        # key_norm used to leave numpy ints in Note.pitch, which Note() rejects when get_melody rebuilds notes
+        bars = [make_bar(bar_id=i, notes_of_insts={0: {0: [(62, 12, 64)], 12: [(66, 12, 64)], 24: [(69, 12, 64)]}})
+                for i in range(4)]  # D major arpeggio -> shifted to C
+        mt = MultiTrack(bars=bars)
+        shift = mt.key_norm()
+        assert type(shift) is int
+        assert all(type(n.pitch) is int for b in mt.bars for t in b.tracks.values() for n in t.notes)
+        mel = mt.get_melody("hi_note_dur")
+        assert len(mel) == 4

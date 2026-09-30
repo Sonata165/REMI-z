@@ -281,6 +281,99 @@ class NoteStream:
         """Return [[onset, offset, pitch], ...] for each note."""
         return [[note.onset, round(note.offset, 3), note.pitch] for note in self.notes]
 
+    def get_melody(
+        self, mel_def: str = "hi_note_dur_plus", onset_tol: float = 0.05, trim_overlap: bool = False
+    ) -> "NoteStream":
+        """
+        Extract the melody line as a new NoteStream.
+
+        Parameters
+        ----------
+        mel_def : str
+            Melody policy:
+
+            - ``'hi_note'`` — the highest-pitched note of every onset group.
+            - ``'hi_note_dur'`` — like ``'hi_note'``, but a note is dropped if
+              it starts while the previous melody note is still sounding (more
+              than ``onset_tol`` before that note ends).
+            - ``'hi_note_dur_plus'`` (default) — like ``'hi_note_dur'``, except
+              a note that starts while melody notes are still sounding is kept
+              unless it is lower than one of them (a higher line entering over a
+              held note is melody; a lower one is accompaniment). A note at the
+              same pitch as a sounding melody note counts as a new melody note
+              (a re-attack). Every still-sounding melody note is
+              compared, not only the latest: a long note keeps blocking lower
+              notes after a shorter higher note over it has ended.
+        onset_tol : float
+            Timing slack in seconds (default 0.05). Notes starting within
+            ``onset_tol`` of the first note of a group count as one onset (the
+            notes of a performed chord never start at exactly the same time),
+            and the ``'hi_note_dur*'`` policies let a note start up to
+            ``onset_tol`` before a melody note ends without counting as an
+            overlap (performed legato overlaps slightly).
+            ``0`` groups only exactly simultaneous onsets.
+        trim_overlap : bool
+            If True, a melody note still sounding when the next melody note
+            starts is cut to end at that onset, so no two melody notes ever
+            sound at once (this covers both the legato slack above and, for
+            ``'hi_note_dur_plus'``, a held note under a higher one). Default False.
+
+        Returns
+        -------
+        NoteStream
+            Melody notes in time order, as new NoteAbs objects (editing them
+            leaves this stream untouched), with this stream's ``inst_id``.
+            Empty for a drum stream. Unless ``trim_overlap`` is set, melody notes
+            keep their durations and can overlap (a legato overlap within
+            ``onset_tol``, or with ``'hi_note_dur_plus'`` a held note under a
+            higher one).
+        """
+        assert mel_def in ["hi_note", "hi_note_dur", "hi_note_dur_plus"], \
+            "mel_def must be 'hi_note', 'hi_note_dur' or 'hi_note_dur_plus'"
+        assert onset_tol >= 0, "onset_tol must be >= 0"
+
+        if self.is_drum or not self.notes:
+            return NoteStream([], inst_id=self.inst_id)
+
+        # Highest note of each onset group. A group is anchored at its first
+        # onset (not chained note to note), so a fast run isn't merged into one.
+        picked = []
+        group_start, group_top = None, None
+        for note in sorted(self.notes):
+            if group_start is None or note.onset - group_start > onset_tol:
+                if group_top is not None:
+                    picked.append(group_top)
+                group_start, group_top = note.onset, note
+            elif note.pitch > group_top.pitch:
+                group_top = note
+        picked.append(group_top)
+
+        if mel_def == "hi_note_dur":
+            kept, prev_end = [], None
+            for note in picked:
+                if prev_end is not None and note.onset < prev_end - onset_tol:
+                    continue
+                kept.append(note)
+                prev_end = note.offset
+            picked = kept
+        elif mel_def == "hi_note_dur_plus":
+            kept, sounding = [], []  # sounding: melody notes still ringing at the current onset
+            for note in picked:
+                sounding = [m for m in sounding if note.onset < m.offset - onset_tol]
+                if sounding and note.pitch < max(m.pitch for m in sounding):  # same pitch: a re-attack, kept
+                    continue
+                kept.append(note)
+                sounding.append(note)
+            picked = kept
+
+        melody = [NoteAbs(onset=n.onset, duration=n.duration, pitch=n.pitch, velocity=n.velocity) for n in picked]
+        if trim_overlap:
+            # picked onsets are strictly increasing (one note per onset group), so a trimmed duration stays > 0
+            for cur, nxt in zip(melody, melody[1:]):
+                if nxt.onset < cur.offset:
+                    cur.duration = nxt.onset - cur.onset
+        return NoteStream(melody, inst_id=self.inst_id)
+
     def to_midi(
         self,
         path: str,
