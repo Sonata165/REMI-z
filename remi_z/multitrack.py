@@ -1,3 +1,4 @@
+import bisect
 import os
 
 import miditoolkit
@@ -873,56 +874,141 @@ class MultiTrack:
 
         return pitch_range + 1
 
-    def get_melody_of_song(self, mel_def: str) -> List[List[Note]]:
+    def get_melody_of_song(
+        self, mel_def: str = "hi_note_dur_plus", inst_id: int = 0, trim_overlap: bool = False
+    ) -> "MultiTrack":
         """
-        Get melody notes for the entire MultiTrack object.
-        NOTE: This algorithm calculate melody for each bar independently.
+        Extract the melody of the whole song as a new MultiTrack in which each
+        bar holds a single Track of melody notes.
 
-        hi_track: The track with the highest average pitch.
+        Unlike ``get_melody``, this works on one timeline for the whole song, not
+        bar by bar: a note held across a bar line still counts as sounding in the
+        next bar.
 
+        Parameters
+        ----------
+        mel_def : str
+            Melody policy:
+
+            - ``'hi_track'`` — all notes of the track with the highest average
+              pitch over the song.
+            - ``'hi_note_dur_plus'`` (default) — the highest non-drum note at each
+              onset; a note that starts while melody notes are still sounding is
+              kept unless it is lower than one of them (a higher line entering
+              over a held note, or a same-pitch re-attack, is melody; a lower
+              note is accompaniment). Every still-sounding melody note is
+              compared, including ones held from earlier bars. Onsets and
+              durations are compared exactly: quantized MIDI sits on a grid, so
+              no timing tolerance is applied (see ``NoteStream.get_melody`` for
+              performance MIDI).
+        inst_id : int, optional
+            GM program number of the melody Track in every bar (default ``0``).
+        trim_overlap : bool, optional
+            If True, a melody note still sounding at the next (later) melody
+            onset is cut to end there, across bar lines too, so no two melody
+            notes sound at once (notes sharing an onset, e.g. a chord in
+            ``'hi_track'``, are left as they are). Default False.
+
+        Returns
+        -------
+        MultiTrack
+            Same number of bars as ``self``, each with the source bar's id, time
+            signature and tempo. Each melody note stays in the bar where it
+            starts. Bars with no melody notes have no tracks. The notes are new
+            Note objects, so editing the result leaves ``self`` untouched.
         """
-        assert mel_def in ["hi_track"], "mel_def must be 'hi_track'"
+        assert mel_def in ["hi_track", "hi_note_dur_plus"], "mel_def must be 'hi_track' or 'hi_note_dur_plus'"
+        assert isinstance(inst_id, int), "inst_id must be an integer"
+        assert 0 <= inst_id <= 127, "inst_id must be in the range of [0, 127]"
 
-        # Collate the average pitch of each track from all bars
-        track_avg_pitches = {}
+        # Song-level position of each bar's start (REMI-z: 12 positions per quarter note)
+        bar_starts, pos = [], 0
         for bar in self.bars:
-            for inst_id, track in bar.tracks.items():
-                if track.is_drum:
+            bar_starts.append(pos)
+            num, den = bar.time_signature
+            pos += num * 48 // den
+
+        # Candidate notes as (song_onset, bar_idx, note)
+        if mel_def == "hi_track":
+            # the track with the highest average pitch over all bars it appears in
+            track_avg_pitches = {}
+            for bar in self.bars:
+                for tid, track in bar.tracks.items():
+                    if not track.is_drum:
+                        track_avg_pitches.setdefault(tid, []).append(track.get_avg_pitch())
+            if not track_avg_pitches:
+                return self._melody_to_multitrack([[] for _ in self.bars], inst_id)
+            highest_track_id = max(track_avg_pitches, key=lambda t: sum(track_avg_pitches[t]) / len(track_avg_pitches[t]))
+            melody = [
+                (bar_starts[i] + note.onset, i, note)
+                for i, bar in enumerate(self.bars) if highest_track_id in bar.tracks
+                for note in bar.tracks[highest_track_id].notes
+            ]
+        else:
+            # highest note at each song-level onset
+            tops = {}
+            for i, bar in enumerate(self.bars):
+                for track in bar.tracks.values():
+                    if track.is_drum:
+                        continue
+                    for note in track.notes:
+                        on = bar_starts[i] + note.onset
+                        if on not in tops or note.pitch > tops[on][2].pitch:
+                            tops[on] = (on, i, note)
+            melody, sounding = [], []  # sounding: (song_end, pitch) of melody notes still ringing
+            for on in sorted(tops):
+                sounding = [(end, p) for end, p in sounding if end > on]
+                cand = tops[on][2]
+                if sounding and cand.pitch < max(p for _end, p in sounding):  # lower than a held melody note
                     continue
-                avg_pitch = track.get_avg_pitch()
-                if inst_id not in track_avg_pitches:
-                    track_avg_pitches[inst_id] = []
-                track_avg_pitches[inst_id].append(avg_pitch)
-        # Calculate the average pitch for each track
-        for inst_id in track_avg_pitches:
-            avg_pitch = sum(track_avg_pitches[inst_id]) / len(
-                track_avg_pitches[inst_id]
-            )
-            track_avg_pitches[inst_id] = avg_pitch
-        # Sort the tracks by average pitch
-        sorted_tracks = sorted(
-            track_avg_pitches.items(), key=lambda x: x[1], reverse=True
+                melody.append(tops[on])
+                sounding.append((on + cand.duration, cand.pitch))
+
+        # (song_onset, bar_idx, onset_in_bar, pitch, duration, velocity), in time order
+        melody = sorted(
+            [(on, i, n.onset, n.pitch, n.duration, n.velocity) for on, i, n in melody],
+            key=lambda m: (m[0], -m[3]),
         )
-        # Get the track with the highest average pitch
-        highest_track_id = sorted_tracks[0][0]
+        if trim_overlap:
+            onsets = sorted({m[0] for m in melody})
+            for k, (on, i, onset, pitch, dur, vel) in enumerate(melody):
+                j = bisect.bisect_right(onsets, on)  # next strictly later melody onset
+                if j < len(onsets) and onsets[j] < on + dur:
+                    melody[k] = (on, i, onset, pitch, onsets[j] - on, vel)
 
-        # Get the melody notes from the highest track, from each bar
-        mel_notes = []
-        for bar in self.bars:
-            if highest_track_id in bar.tracks:
-                mel_track = bar.tracks[highest_track_id]
-                mel_notes.append(mel_track.get_all_notes())
-            else:
-                mel_notes.append([])
+        notes_per_bar = [[] for _ in self.bars]
+        for _on, i, onset, pitch, dur, vel in melody:
+            notes_per_bar[i].append((onset, pitch, dur, vel))
+        return self._melody_to_multitrack(notes_per_bar, inst_id)
 
-        return mel_notes
+    def _melody_to_multitrack(self, notes_per_bar, inst_id: int) -> "MultiTrack":
+        """Builds a MultiTrack with self's bar ids / time signatures / tempos and,
+        per bar, one ``inst_id`` Track from ``(onset, pitch, duration, velocity)``
+        tuples (no track for a bar with no notes). Notes sharing an onset are all
+        kept."""
+        bars = []
+        for bar, notes in zip(self.bars, notes_per_bar):
+            notes_by_onset = {}
+            for onset, pitch, duration, velocity in notes:
+                notes_by_onset.setdefault(onset, []).append((pitch, duration, velocity))
+            bars.append(
+                Bar(
+                    id=bar.bar_id,
+                    notes_of_insts={inst_id: notes_by_onset} if notes_by_onset else {},
+                    time_signature=bar.time_signature,
+                    tempo=bar.tempo,
+                )
+            )
+        return MultiTrack(bars=bars)
 
     def get_melody(self, mel_def: str, inst_id: int = 0) -> "MultiTrack":
         """
         Extract the melody of every bar as a new MultiTrack in which each bar
         holds a single Track of melody notes.
 
-        NOTE: This algorithm calculates the melody for each bar independently.
+        NOTE: This algorithm calculates the melody for each bar independently, so
+        a note held across a bar line is not seen by the next bar. Use
+        ``get_melody_of_song`` to extract on one timeline for the whole song.
 
         Parameters
         ----------
@@ -945,28 +1031,12 @@ class MultiTrack:
         assert isinstance(inst_id, int), "inst_id must be an integer"
         assert 0 <= inst_id <= 127, "inst_id must be in the range of [0, 127]"
 
-        bars = []
+        notes_per_bar = []
         for bar in self.bars:
             has_pitched_track = any(not track.is_drum for track in bar.tracks.values())
             mel_notes = bar.get_melody(mel_def) if has_pitched_track else []
-
-            # group by onset: a melody can hold several notes at one onset ('hi_track' on a chordal track)
-            notes_by_onset = {}
-            for note in mel_notes:
-                notes_by_onset.setdefault(note.onset, []).append(
-                    (note.pitch, note.duration, note.velocity)
-                )
-            notes_of_insts = {inst_id: notes_by_onset} if notes_by_onset else {}
-
-            bars.append(
-                Bar(
-                    id=bar.bar_id,
-                    notes_of_insts=notes_of_insts,
-                    time_signature=bar.time_signature,
-                    tempo=bar.tempo,
-                )
-            )
-        return MultiTrack(bars=bars)
+            notes_per_bar.append([(n.onset, n.pitch, n.duration, n.velocity) for n in mel_notes])
+        return self._melody_to_multitrack(notes_per_bar, inst_id)
 
     def insert_empty_bars_at_front(self, num_bars):
         """

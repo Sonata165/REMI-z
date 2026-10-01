@@ -451,3 +451,114 @@ class TestMultiTrackGetMelody:
         assert all(type(n.pitch) is int for b in mt.bars for t in b.tracks.values() for n in t.notes)
         mel = mt.get_melody("hi_note_dur")
         assert len(mel) == 4
+
+
+# ============================================================
+# get_melody_of_song
+# ============================================================
+
+def mel_notes(mt):
+    """[(bar_idx, onset_in_bar, pitch, duration)] of a melody MultiTrack."""
+    return sorted((i, n.onset, n.pitch, n.duration) for i, b in enumerate(mt.bars) for t in b.tracks.values() for n in t.notes)
+
+
+class TestMultiTrackGetMelodyOfSong:
+
+    def test_note_held_across_bar_line_blocks_lower_notes(self):
+        # the bug case: bar 0's 60 starts at 36 and lasts 36 -> ends at bar 1 pos 24.
+        # bar 1's 52 (0-12) and 43 (12-18) lie inside it and are lower -> not melody; 64 at 30 is after it.
+        mt = MultiTrack(bars=[
+            make_bar(0, {0: {36: [(60, 36, 64)]}}),
+            make_bar(1, {0: {0: [(52, 12, 64)], 12: [(43, 6, 64)], 30: [(64, 12, 64)]}}),
+        ])
+        assert mel_notes(mt.get_melody_of_song("hi_note_dur_plus")) == [(0, 36, 60, 36), (1, 30, 64, 12)]
+        # bar-by-bar get_melody can't see the held note -- this is what the song-level version fixes
+        assert (1, 0, 52, 12) in mel_notes(mt.get_melody("hi_note_dur"))
+
+    def test_default_policy(self):
+        mt = MultiTrack(bars=[make_bar(0, {0: {0: [(60, 96, 64)]}}), make_bar(1, {0: {12: [(55, 12, 64)]}})])
+        assert mel_notes(mt.get_melody_of_song()) == mel_notes(mt.get_melody_of_song("hi_note_dur_plus"))
+
+    def test_higher_note_over_held_note_kept(self):
+        mt = MultiTrack(bars=[make_bar(0, {0: {0: [(60, 96, 64)]}}), make_bar(1, {0: {12: [(67, 12, 64)]}})])
+        assert mel_notes(mt.get_melody_of_song()) == [(0, 0, 60, 96), (1, 12, 67, 12)]
+
+    def test_same_pitch_reattack_kept(self):
+        mt = MultiTrack(bars=[make_bar(0, {0: {0: [(64, 60, 64)]}}), make_bar(1, {0: {6: [(64, 12, 64)]}})])
+        assert mel_notes(mt.get_melody_of_song()) == [(0, 0, 64, 60), (1, 6, 64, 12)]
+
+    def test_exact_comparison_no_tolerance(self):
+        # a note starting exactly where the held note ends is not overlapping; one position earlier is
+        mt = MultiTrack(bars=[make_bar(0, {0: {0: [(64, 12, 64)], 12: [(60, 12, 64)]}})])
+        assert [p for _, _, p, _ in mel_notes(mt.get_melody_of_song())] == [64, 60]
+        mt = MultiTrack(bars=[make_bar(0, {0: {0: [(64, 13, 64)], 12: [(60, 12, 64)]}})])
+        assert [p for _, _, p, _ in mel_notes(mt.get_melody_of_song())] == [64]
+
+    def test_highest_note_per_onset_across_tracks(self):
+        mt = MultiTrack(bars=[make_bar(0, {0: {0: [(48, 12, 64), (55, 12, 64)]}, 48: {0: [(72, 12, 80)]}})])
+        assert mel_notes(mt.get_melody_of_song()) == [(0, 0, 72, 12)]
+
+    def test_three_four_bar_length(self):
+        # 3/4 bars are 36 positions: 60 at 24 lasting 24 ends at bar 1 pos 12
+        mt = MultiTrack(bars=[
+            make_bar(0, {0: {24: [(60, 24, 64)]}}, time_signature=(3, 4)),
+            make_bar(1, {0: {6: [(55, 6, 64)], 12: [(57, 6, 64)]}}, time_signature=(3, 4)),
+        ])
+        assert mel_notes(mt.get_melody_of_song()) == [(0, 24, 60, 24), (1, 12, 57, 6)]
+
+    def test_trim_overlap_across_bar_line(self):
+        mt = MultiTrack(bars=[make_bar(0, {0: {0: [(60, 96, 64)]}}), make_bar(1, {0: {12: [(67, 12, 64)]}})])
+        # 60 is cut at song position 48 + 12 = 60
+        assert mel_notes(mt.get_melody_of_song(trim_overlap=True)) == [(0, 0, 60, 60), (1, 12, 67, 12)]
+        assert mel_notes(mt.get_melody_of_song()) == [(0, 0, 60, 96), (1, 12, 67, 12)]  # default: untrimmed
+
+    def test_trim_overlap_leaves_no_overlap(self):
+        import random
+        rng = random.Random(0)
+        bars = []
+        for i in range(8):
+            notes = {}
+            for _ in range(6):
+                notes.setdefault(rng.randrange(0, 48, 3), []).append((rng.randint(40, 90), rng.randrange(3, 60, 3), 64))
+            bars.append(make_bar(i, {0: notes}))
+        mel = MultiTrack(bars=bars).get_melody_of_song(trim_overlap=True)
+        song = sorted((i * 48 + n.onset, i * 48 + n.onset + n.duration) for i, b in enumerate(mel.bars)
+                      for t in b.tracks.values() for n in t.notes)
+        assert all(nxt[0] >= cur[1] for cur, nxt in zip(song, song[1:]))
+        assert all(end > on for on, end in song)
+
+    def test_hi_track_returns_multitrack_with_chords(self):
+        mt = MultiTrack(bars=[make_bar(0, {0: {0: [(48, 12, 64)]}, 48: {0: [(72, 24, 64), (76, 24, 64)], 12: [(74, 12, 64)]}})])
+        mel = mt.get_melody_of_song("hi_track")
+        assert isinstance(mel, MultiTrack)
+        assert mel_notes(mel) == [(0, 0, 72, 24), (0, 0, 76, 24), (0, 12, 74, 12)]
+        # trimming cuts the chord at the next onset but never to zero length
+        assert mel_notes(mt.get_melody_of_song("hi_track", trim_overlap=True)) == [(0, 0, 72, 12), (0, 0, 76, 12), (0, 12, 74, 12)]
+
+    def test_empty_drum_only_and_metadata(self):
+        mt = MultiTrack(bars=[
+            make_bar(0, {0: {0: [(60, 12, 64)]}}, tempo=90.0),
+            make_bar(1, {}),
+            make_bar(2, {128: {0: [(36, 6, 100)]}}, time_signature=(3, 4)),
+        ])
+        for policy in ["hi_note_dur_plus", "hi_track"]:
+            mel = mt.get_melody_of_song(policy, inst_id=73)
+            assert len(mel) == 3
+            assert list(mel.bars[0].tracks) == [73] and mel.bars[1].tracks == {} and mel.bars[2].tracks == {}
+            assert [(b.bar_id, b.time_signature, b.tempo) for b in mel.bars] == [(b.bar_id, b.time_signature, b.tempo) for b in mt.bars]
+        drums = MultiTrack(bars=[make_bar(0, {128: {0: [(36, 6, 100)]}})])
+        assert drums.get_melody_of_song("hi_track").bars[0].tracks == {}
+
+    def test_source_not_modified(self):
+        mt = MultiTrack(bars=[make_bar(0, {0: {0: [(60, 96, 64)]}}), make_bar(1, {0: {12: [(67, 12, 64)]}})])
+        before = mt.to_remiz_str()
+        mel = mt.get_melody_of_song(trim_overlap=True)
+        mel.shift_pitch(12)
+        assert mt.to_remiz_str() == before
+
+    def test_bad_args(self):
+        mt = make_multitrack()
+        with pytest.raises(AssertionError):
+            mt.get_melody_of_song("hi_note")
+        with pytest.raises(AssertionError):
+            mt.get_melody_of_song(inst_id=128)
