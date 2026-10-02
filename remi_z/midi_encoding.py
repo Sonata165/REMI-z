@@ -368,6 +368,45 @@ def fill_pos_ts_and_tempo_(pos_info):
     return pos_info
 
 
+def adjust_pos_info_offset_overlap_(pos_info, include_drum=False):
+    '''
+    In place: remove same-pitch offset overlaps from the notes of pos_info (as returned by
+    MidiEncoder.collect_pos_info, item [bar, ts, local_pos, tempo, insts_notes] per global
+    position; insts_notes maps inst_id -> [[pitch, duration, velocity], ...]).
+
+    collect_pos_info files the notes of every MIDI track of one program under one inst_id,
+    and quantizes onsets and offsets separately, so one inst_id can hold same-pitch notes
+    that overlap -- which MIDI cannot represent faithfully. Per (inst_id, pitch), on global
+    positions (so notes held across bar lines are handled too):
+      - notes sharing an onset are deduplicated: the longest (then loudest) is kept
+      - each duration is capped at the distance to the next same-pitch onset (a note may end
+        exactly where the next one starts)
+    Only durations are shortened; onsets, pitches and velocities are kept. With include_drum
+    False (default), drum notes (program 128) are left unchanged.
+    '''
+    groups = {}  # (inst_id, pitch) -> [(pos, duration, velocity)]
+    for pos, item in enumerate(pos_info):
+        insts_notes = item[4]
+        if not insts_notes:
+            continue
+        for inst_id, notes in insts_notes.items():
+            prog_id = inst_id[0] if isinstance(inst_id, tuple) else inst_id
+            if prog_id == 128 and not include_drum:
+                continue
+            for pitch, duration, velocity in notes:
+                groups.setdefault((inst_id, pitch), []).append((pos, duration, velocity))
+            insts_notes[inst_id] = []  # refilled below, in (onset, pitch) group order
+
+    for (inst_id, pitch), group in groups.items():
+        group.sort(key=lambda n: (n[0], -n[1], -n[2]))  # by onset, then longest, then loudest
+        kept = [n for k, n in enumerate(group) if k == 0 or n[0] != group[k - 1][0]]
+        for k, (pos, duration, velocity) in enumerate(kept):
+            if k + 1 < len(kept):
+                duration = min(duration, kept[k + 1][0] - pos)
+            pos_info[pos][4][inst_id].append([pitch, duration, velocity])
+    return pos_info
+
+
 def convert_tempo_to_id(x):
     '''
     Return: e, int, tempo id.

@@ -260,6 +260,10 @@ class Bar:
         Returns a new Bar object; the original is not modified.
         Drum tracks are excluded from the merged result.
 
+        Only notes sharing the same onset and pitch are deduplicated; same-pitch
+        offset overlaps are kept, since notes held into the next bar can only be
+        fixed at song level (see ``MultiTrack.flatten`` / ``MultiTrack.adjust_offset_overlap``).
+
         Returns
         -------
         Bar

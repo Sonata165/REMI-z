@@ -289,6 +289,206 @@ class TestMultiTrackFlatten:
         assert len(flat.get_all_notes()) == 2
 
 
+    def test_offset_overlap_adjusted_by_default(self):
+        # piano holds C4 for a whole note; guitar re-attacks C4 on beat 2
+        mt = MultiTrack(bars=[make_bar(notes_of_insts={
+            0: {0: [(60, 48, 64)]},
+            24: {12: [(60, 12, 64)]},
+        })])
+        notes = mt.flatten().bars[0].tracks[0].notes
+        assert [(n.onset, n.duration) for n in notes] == [(0, 12), (12, 12)]
+
+    def test_offset_overlap_kept_when_disabled(self):
+        mt = MultiTrack(bars=[make_bar(notes_of_insts={
+            0: {0: [(60, 48, 64)]},
+            24: {12: [(60, 12, 64)]},
+        })])
+        notes = mt.flatten(adjust_offset_overlap=False).bars[0].tracks[0].notes
+        assert [(n.onset, n.duration) for n in notes] == [(0, 48), (12, 12)]
+
+    def test_offset_overlap_across_bar_line(self):
+        mt = MultiTrack(bars=[
+            make_bar(bar_id=0, notes_of_insts={0: {36: [(60, 30, 64)]}}),
+            make_bar(bar_id=1, notes_of_insts={24: {6: [(60, 12, 64)]}}),
+        ])
+        flat = mt.flatten()
+        assert flat.bars[0].tracks[0].notes[0].duration == 18  # 36 + 18 = 48 + 6
+        assert flat.bars[1].tracks[0].notes[0].duration == 12
+
+    def test_source_not_modified(self):
+        mt = MultiTrack(bars=[make_bar(notes_of_insts={
+            0: {0: [(60, 48, 64)]},
+            24: {12: [(60, 12, 64)]},
+        })])
+        mt.flatten()
+        assert mt.bars[0].tracks[0].notes[0].duration == 48
+
+
+# ============================================================
+# adjust_offset_overlap
+# ============================================================
+
+class TestMultiTrackAdjustOffsetOverlap:
+
+    @staticmethod
+    def durations(mt):
+        return [[(tid, n.onset, n.pitch, n.duration) for tid, t in bar.tracks.items() for n in t.notes]
+                for bar in mt.bars]
+
+    def test_nested_same_pitch_trimmed(self):
+        mt = MultiTrack(bars=[make_bar(notes_of_insts={0: {0: [(60, 48, 64)], 12: [(60, 6, 64)]}})])
+        assert self.durations(mt.adjust_offset_overlap()) == [[(0, 0, 60, 12), (0, 12, 60, 6)]]
+
+    def test_three_four_bar_start(self):
+        # bar 0 is 3/4 (36 positions): onset 30 + 24 reaches bar 1's onset 6 (song position 42) after 12
+        mt = MultiTrack(bars=[
+            make_bar(bar_id=0, notes_of_insts={0: {30: [(60, 24, 64)]}}, time_signature=(3, 4)),
+            make_bar(bar_id=1, notes_of_insts={0: {6: [(60, 12, 64)]}}),
+        ])
+        assert mt._bar_starts() == [0, 36]
+        assert self.durations(mt.adjust_offset_overlap())[0] == [(0, 30, 60, 12)]
+
+    def test_untouched_cases(self):
+        mt = MultiTrack(bars=[make_bar(notes_of_insts={
+            0: {0: [(60, 12, 64), (64, 48, 64)], 12: [(60, 12, 64), (67, 12, 64)]},  # touch; other pitches
+            24: {6: [(60, 12, 64)]},   # same pitch, other track
+            128: {0: [(36, 48, 64)], 12: [(36, 12, 64)]},  # drums
+        })])
+        assert self.durations(mt.adjust_offset_overlap()) == self.durations(mt)
+
+    def test_drums_included_on_request(self):
+        mt = MultiTrack(bars=[make_bar(notes_of_insts={128: {0: [(36, 48, 64)], 12: [(36, 12, 64)]}})])
+        notes = mt.adjust_offset_overlap(include_drum=True).bars[0].tracks[128].notes
+        assert [n.duration for n in notes] == [12, 12]
+
+    def test_same_onset_duplicates_in_track_deduplicated(self):
+        mt = MultiTrack(bars=[make_bar(notes_of_insts={0: {0: [(60, 6, 64), (60, 24, 80)], 12: [(60, 12, 64)]}})])
+        notes = mt.adjust_offset_overlap().bars[0].tracks[0].notes
+        assert [(n.onset, n.duration, n.velocity) for n in notes] == [(0, 12, 80), (12, 12, 64)]
+
+    def test_metadata_and_source_kept(self):
+        mt = MultiTrack(bars=[
+            make_bar(bar_id=0, notes_of_insts={0: {0: [(60, 96, 64)]}, 24: {0: [(72, 12, 64)]}},
+                     time_signature=(3, 4), tempo=90.0),
+            make_bar(bar_id=1, notes_of_insts={0: {0: [(60, 12, 64)]}}, tempo=100.0),
+        ])
+        adj = mt.adjust_offset_overlap()
+        assert [(b.bar_id, b.time_signature, b.tempo, list(b.tracks)) for b in adj.bars] == \
+               [(b.bar_id, b.time_signature, b.tempo, list(b.tracks)) for b in mt.bars]
+        assert adj.bars[0].tracks[0].notes[0].duration == 36
+        assert mt.bars[0].tracks[0].notes[0].duration == 96
+        assert adj.bars[0].tracks[0].notes[0] is not mt.bars[0].tracks[0].notes[0]
+
+    def test_midi_round_trip(self, tmp_path):
+        mt = MultiTrack(bars=[
+            make_bar(bar_id=0, notes_of_insts={
+                0: {0: [(60, 48, 64), (64, 24, 64)], 24: [(64, 12, 64)]},
+                24: {12: [(60, 12, 64)], 36: [(67, 24, 64)]},
+            }),
+            make_bar(bar_id=1, notes_of_insts={24: {0: [(67, 12, 64)], 12: [(60, 12, 64)]}}),
+        ])
+        flat = mt.flatten()
+        fp = str(tmp_path / "flat.mid")
+        flat.to_midi(fp, verbose=False)
+        assert self.durations(MultiTrack.from_midi(fp)) == self.durations(flat)
+
+
+# ============================================================
+# from_midi: offset adjustment
+# ============================================================
+
+def write_midi(fp, instruments):
+    """instruments: [(program, is_drum, name, [(start_pos, end_pos, pitch, velocity)])],
+    times in REMI-z positions (12 per beat; 480 ticks per beat -> 40 ticks per position)."""
+    import miditoolkit
+    midi = miditoolkit.midi.parser.MidiFile(ticks_per_beat=480)
+    midi.time_signature_changes.append(miditoolkit.midi.containers.TimeSignature(4, 4, 0))
+    midi.tempo_changes.append(miditoolkit.midi.containers.TempoChange(120, 0))
+    for program, is_drum, name, notes in instruments:
+        inst = miditoolkit.midi.containers.Instrument(program=program, is_drum=is_drum, name=name)
+        inst.notes = [miditoolkit.midi.containers.Note(velocity=v, pitch=p, start=s * 40, end=e * 40)
+                      for s, e, p, v in notes]
+        midi.instruments.append(inst)
+    midi.dump(fp)
+    return fp
+
+
+def song_notes(mt):
+    starts = mt._bar_starts()
+    return sorted((tid, starts[i] + n.onset, n.pitch, n.duration, n.velocity)
+                  for i, bar in enumerate(mt.bars) for tid, t in bar.tracks.items() for n in t.notes)
+
+
+class TestFromMidiOffsetAdjustment:
+
+    def test_same_program_tracks_merged_and_adjusted(self, tmp_path):
+        fp = write_midi(str(tmp_path / "a.mid"), [
+            (0, False, "piano 1", [(0, 48, 60, 64), (24, 36, 64, 64)]),
+            (0, False, "piano 2", [(12, 18, 60, 70), (24, 30, 64, 90)]),  # nested C4; doubled E4
+        ])
+        assert song_notes(MultiTrack.from_midi(fp)) == [
+            (0, 0, 60, 12, 64), (0, 12, 60, 6, 70), (0, 24, 64, 12, 64)]
+
+    def test_disabled_keeps_old_behavior(self, tmp_path):
+        fp = write_midi(str(tmp_path / "a.mid"), [
+            (0, False, "piano 1", [(0, 48, 60, 64), (24, 36, 64, 64)]),
+            (0, False, "piano 2", [(12, 18, 60, 70), (24, 30, 64, 90)]),
+        ])
+        assert song_notes(MultiTrack.from_midi(fp, adjust_offset_overlap=False)) == [
+            (0, 0, 60, 48, 64), (0, 12, 60, 6, 70), (0, 24, 64, 6, 90), (0, 24, 64, 12, 64)]
+
+    def test_across_bar_line(self, tmp_path):
+        fp = write_midi(str(tmp_path / "a.mid"), [
+            (0, False, "a", [(36, 72, 60, 64)]),
+            (0, False, "b", [(54, 60, 60, 64)]),  # bar 1, onset 6
+        ])
+        mt = MultiTrack.from_midi(fp)
+        assert song_notes(mt) == [(0, 36, 60, 18, 64), (0, 54, 60, 6, 64)]
+        assert mt.bars[0].tracks[0].notes[0].duration == 18
+
+    def test_zero_length_after_quantization(self, tmp_path):
+        # a 1-tick note quantizes to duration 0 (Note makes it 1): it must not pass the next onset
+        import miditoolkit
+        fp = str(tmp_path / "a.mid")
+        midi = miditoolkit.midi.parser.MidiFile(ticks_per_beat=480)
+        inst = miditoolkit.midi.containers.Instrument(program=0, name="a")
+        inst.notes = [miditoolkit.midi.containers.Note(64, 60, 400, 401),
+                      miditoolkit.midi.containers.Note(64, 60, 440, 480)]
+        midi.instruments.append(inst)
+        midi.dump(fp)
+        assert song_notes(MultiTrack.from_midi(fp)) == [(0, 10, 60, 1, 64), (0, 11, 60, 1, 64)]
+
+    def test_untouched_cases(self, tmp_path):
+        tracks = [
+            (0, False, "piano", [(0, 48, 60, 64), (0, 12, 64, 64), (12, 24, 64, 64)]),  # touch
+            (24, False, "guitar", [(12, 24, 60, 64)]),          # same pitch, other program
+            (0, True, "drums", [(0, 48, 36, 64), (12, 24, 36, 64), (12, 18, 36, 80)]),
+        ]
+        fp = write_midi(str(tmp_path / "a.mid"), tracks)
+        assert song_notes(MultiTrack.from_midi(fp)) == song_notes(
+            MultiTrack.from_midi(fp, adjust_offset_overlap=False))
+
+    def test_multi_instance_tracks_not_adjusted_against_each_other(self, tmp_path):
+        fp = write_midi(str(tmp_path / "a.mid"), [
+            (0, False, "piano 1", [(0, 48, 60, 64)]),
+            (0, False, "piano 2", [(12, 24, 60, 64)]),
+        ])
+        mt = MultiTrack.from_midi(fp, support_same_program_multi_instance=True)
+        assert sorted(n[1:4] for n in song_notes(mt)) == [(0, 60, 48), (12, 60, 12)]
+
+    def test_round_trip(self, tmp_path):
+        fp = write_midi(str(tmp_path / "a.mid"), [
+            (0, False, "piano 1", [(0, 48, 60, 64), (24, 90, 67, 64), (60, 72, 67, 64)]),
+            (0, False, "piano 2", [(12, 24, 60, 64), (30, 40, 67, 64)]),
+            (33, False, "bass", [(0, 96, 36, 64), (48, 60, 36, 64)]),
+        ])
+        mt = MultiTrack.from_midi(fp)
+        out = str(tmp_path / "b.mid")
+        mt.to_midi(out, verbose=False)
+        assert song_notes(MultiTrack.from_midi(out)) == song_notes(mt)
+        assert song_notes(MultiTrack.from_midi(out, adjust_offset_overlap=False)) == song_notes(mt)
+
+
 # ============================================================
 # filter_tracks / remove_tracks / change_instrument
 # ============================================================

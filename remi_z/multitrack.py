@@ -8,11 +8,13 @@ from typing import List, Tuple
 
 from .note import Note, NoteSeq
 from .bar import Bar, deduplicate_notes
+from .track import Track
 from .utils import read_yaml
 from .midi_encoding import (
     MidiEncoder,
     load_midi,
     fill_pos_ts_and_tempo_,
+    adjust_pos_info_offset_overlap_,
     convert_tempo_to_id,
     convert_id_to_tempo,
 )
@@ -57,6 +59,8 @@ class MultiTrack:
         # Load the time signature dictionary
         ts_fp = os.path.join(os.path.dirname(__file__), "dict_time_signature.yaml")
         self.ts_dict = read_yaml(ts_fp)
+
+        self.fn = '<unknown>'
 
     def update_ts_and_tempo(self):
         """
@@ -296,9 +300,25 @@ class MultiTrack:
         return cls(bars=bars)
 
     @classmethod
-    def from_midi(cls, midi_fp: str, support_same_program_multi_instance=False):
+    def from_midi(
+        cls,
+        midi_fp: str,
+        support_same_program_multi_instance=False,
+        adjust_offset_overlap: bool = True,
+    ):
         """
         Create a MultiTrack object from a MIDI file.
+
+        MIDI tracks with the same program are merged into one track, unless
+        support_same_program_multi_instance (then one track per (program, track name)).
+
+        Args:
+            adjust_offset_overlap: If True (default), within each track, same-pitch notes
+                sharing an onset are deduplicated (longest kept) and offsets are shortened so
+                that no note overlaps a later note of the same pitch, also across bar lines
+                (see midi_encoding.adjust_pos_info_offset_overlap_). Merging tracks and
+                quantizing produce such overlaps, which MIDI cannot represent faithfully.
+                Drum tracks are left unchanged.
         """
         assert isinstance(midi_fp, str), "midi_fp must be a string"
         assert os.path.exists(midi_fp), "midi_fp does not exist"
@@ -320,6 +340,9 @@ class MultiTrack:
         # in-bar position
         # tempo: only at pos where it changes, otherwise None
         # insts_notes: only at pos where the note starts, otherwise None
+
+        if adjust_offset_overlap:
+            pos_info = adjust_pos_info_offset_overlap_(pos_info)
 
         # Fill time signature and tempo info to the first pos of each bar
         pos_info = fill_pos_ts_and_tempo_(pos_info)
@@ -784,13 +807,20 @@ class MultiTrack:
                 all_notes.extend(track.get_note_list())
         return all_notes
 
-    def flatten(self) -> "MultiTrack":
+    def flatten(self, adjust_offset_overlap: bool = True) -> "MultiTrack":
         """
         Flatten the content of MultiTrack object to a single track, but still save to a MultiTrack object.
         Keep all info the same, such as bars, time signature, tempo, etc.
         Remove drum tracks, if any.
 
-        This will merge all tracks into a single track.
+        This will merge all tracks into a single track. Notes sharing the same onset and
+        pitch within a bar are deduplicated (longest duration kept), see :meth:`Bar.flatten`.
+
+        Args:
+            adjust_offset_overlap: If True (default), afterwards shorten offsets so that no
+                note overlaps a later note of the same pitch, also across bar lines (see
+                :meth:`adjust_offset_overlap`). Merging tracks routinely produces such
+                overlaps, which MIDI cannot represent faithfully.
         """
         assert len(self.bars) > 0, "MultiTrack must have at least one bar"
 
@@ -798,6 +828,89 @@ class MultiTrack:
         for bar in self.bars:
             t = bar.flatten()
             new_bars.append(t)
+
+        ret = MultiTrack(bars=new_bars)
+        if adjust_offset_overlap:
+            ret = ret.adjust_offset_overlap()
+        return ret
+
+    def _bar_starts(self) -> List[int]:
+        """Song-level position of each bar's start (REMI-z: 12 positions per quarter
+        note, so a bar of time signature num/den is num * 48 // den positions long)."""
+        bar_starts, pos = [], 0
+        for bar in self.bars:
+            bar_starts.append(pos)
+            num, den = bar.time_signature
+            pos += num * 48 // den
+        return bar_starts
+
+    def adjust_offset_overlap(self, include_drum: bool = False) -> "MultiTrack":
+        """
+        Return a copy of the MultiTrack with same-pitch offset overlaps removed.
+
+        MIDI Note-On/Note-Off events carry only ``(channel, pitch)``, so two notes of the
+        same pitch in one track whose intervals overlap (in particular one nested inside
+        another) cannot be round-tripped through a MIDI file. The quantized counterpart of
+        ``note_abs._adjust_offset_overlap``: per track and pitch, on song-level positions
+        (so a note held into a later bar is handled too), each note's duration is capped
+        at the distance to the onset of the next note of the same pitch. A note may end
+        exactly where the next one starts.
+
+        Only durations are shortened, never lengthened; onsets, pitches, velocities, bars,
+        tracks, time signatures and tempos are kept. Notes of one track sharing a
+        song-level onset and pitch are deduplicated first (longest duration, then highest
+        velocity kept), so every duration stays >= 1 and no other note is dropped.
+        ``self`` is not modified (all Note objects are new).
+
+        Args:
+            include_drum: If False (default), drum tracks are copied unchanged.
+        """
+        bar_starts = self._bar_starts()
+
+        # (track key, pitch) -> [(song_onset, -duration, -velocity, bar_idx, note)]
+        groups = {}
+        for i, bar in enumerate(self.bars):
+            for tid, track in bar.tracks.items():
+                if track.is_drum and not include_drum:
+                    continue
+                for n in track.notes:
+                    groups.setdefault((tid, n.pitch), []).append(
+                        (bar_starts[i] + n.onset, -n.duration, -n.velocity, i, n)
+                    )
+
+        # bar_idx -> track key -> adjusted notes
+        adjusted = {}
+        for (tid, _pitch), group in groups.items():
+            group.sort(key=lambda g: g[:3])  # by onset, then longest, then loudest
+            kept = [g for k, g in enumerate(group) if k == 0 or g[0] != group[k - 1][0]]
+            for k, (on, _d, _v, i, n) in enumerate(kept):
+                dur = n.duration
+                if k + 1 < len(kept):
+                    dur = min(dur, kept[k + 1][0] - on)
+                adjusted.setdefault(i, {}).setdefault(tid, []).append(
+                    Note(onset=n.onset, duration=dur, pitch=n.pitch, velocity=n.velocity)
+                )
+
+        new_bars = []
+        for i, bar in enumerate(self.bars):
+            new_bar = Bar(
+                id=bar.bar_id,
+                notes_of_insts={},
+                time_signature=bar.time_signature,
+                tempo=bar.tempo,
+            )
+            for tid, track in bar.tracks.items():  # keeps the track order
+                if track.is_drum and not include_drum:
+                    notes = [
+                        Note(onset=n.onset, duration=n.duration, pitch=n.pitch, velocity=n.velocity)
+                        for n in track.notes
+                    ]
+                else:
+                    notes = adjusted.get(i, {}).get(tid, [])
+                new_track = Track.from_note_list(inst_id=track.inst_id, note_list=notes)
+                new_track.track_id = track.track_id
+                new_bar.tracks[tid] = new_track
+            new_bars.append(new_bar)
 
         return MultiTrack(bars=new_bars)
 
@@ -921,12 +1034,7 @@ class MultiTrack:
         assert isinstance(inst_id, int), "inst_id must be an integer"
         assert 0 <= inst_id <= 127, "inst_id must be in the range of [0, 127]"
 
-        # Song-level position of each bar's start (REMI-z: 12 positions per quarter note)
-        bar_starts, pos = [], 0
-        for bar in self.bars:
-            bar_starts.append(pos)
-            num, den = bar.time_signature
-            pos += num * 48 // den
+        bar_starts = self._bar_starts()
 
         # Candidate notes as (song_onset, bar_idx, note)
         if mel_def == "hi_track":
