@@ -257,7 +257,57 @@ class NoteStream:
         if isinstance(idx, int):
             return self.notes[idx]
         elif isinstance(idx, slice):
-            return NoteStream(self.notes[idx])
+            return NoteStream(self.notes[idx], inst_id=self.inst_id)
+
+    def slice(
+        self,
+        start: float,
+        end: float,
+        clip: bool = True,
+        shift: bool = True,
+    ) -> "NoteStream":
+        """
+        Return the notes within the time window [start, end) as a new NoteStream.
+
+        Parameters
+        ----------
+        start, end : float
+            Window bounds in seconds; ``end`` must be > ``start``.
+        clip : bool
+            If True, keep every note overlapping the window and trim it to the window
+            (notes left shorter than 1 ms are dropped). If False, keep only notes whose
+            onset falls in [start, end), at their full duration. Default: True
+        shift : bool
+            If True, re-time notes so ``start`` becomes 0. Default: True
+
+        Notes are copied (this stream is not modified); pitch, velocity and inst_id
+        are kept, and times are rounded to the nearest millisecond (0.001 s).
+        """
+        if end <= start:
+            raise ValueError(f"end must be > start, got start={start}, end={end}")
+
+        origin = start if shift else 0.0
+        notes = []
+        for note in self.notes:
+            if clip:
+                onset, offset = max(note.onset, start), min(note.offset, end)
+            elif start <= note.onset < end:
+                onset, offset = note.onset, note.offset
+            else:
+                continue
+            duration = round(offset - onset, 3)
+            if duration < 0.001:  # outside the window, or trimmed to < 1 ms
+                continue
+            notes.append(
+                NoteAbs(
+                    onset=round(onset - origin, 3),
+                    duration=duration,
+                    pitch=note.pitch,
+                    velocity=note.velocity,
+                )
+            )
+        notes.sort()
+        return NoteStream(notes, inst_id=self.inst_id)
 
     def get_note_name_list(self) -> List[str]:
         return [note.get_note_name() for note in self.notes]
