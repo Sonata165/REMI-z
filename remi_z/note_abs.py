@@ -110,7 +110,11 @@ class NoteStream:
     def __init__(self, note_list: List[NoteAbs], inst_id: int = 0):
         self.inst_id = inst_id
         self.notes = note_list
-        self.is_drum = inst_id == 128  # Use 128 to indicate drum instrument
+
+    @property
+    def is_drum(self) -> bool:
+        """True for a drum stream (``inst_id`` 128). Derived, so it always follows ``inst_id``."""
+        return self.inst_id == 128  # Use 128 to indicate drum instrument
 
     @classmethod
     def from_midi(
@@ -320,6 +324,24 @@ class NoteStream:
             return None
         pitches = [note.pitch for note in self.notes]
         return (min(pitches), max(pitches))
+
+    def shift_pitch(self, semitones: int) -> "NoteStream":
+        """
+        Shift every note's pitch by ``semitones``, in place. Does nothing for a drum stream.
+
+        Raises ValueError, leaving the stream unchanged, if any shifted pitch would fall
+        outside the MIDI range [0, 127]. Returns ``self`` so calls can be chained.
+        """
+        if self.is_drum or not self.notes or semitones == 0:
+            return self
+        lo, hi = self.get_pitch_range()
+        if lo + semitones < 0 or hi + semitones > 127:
+            raise ValueError(
+                f"shift_pitch({semitones}) would move pitches [{lo}, {hi}] outside [0, 127]"
+            )
+        for note in self.notes:
+            note.pitch += semitones
+        return self
 
     def get_onset_list(self) -> List[float]:
         return [note.onset for note in self.notes]
