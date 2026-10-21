@@ -988,7 +988,7 @@ class MultiTrack:
         return pitch_range + 1
 
     def get_melody_of_song(
-        self, mel_def: str = "hi_note_dur_plus", inst_id: int = 0, trim_overlap: bool = False
+        self, mel_def: str = "hi_note_dur_plus", inst_id: int = 0, trim_overlap: bool = True
     ) -> "MultiTrack":
         """
         Extract the melody of the whole song as a new MultiTrack in which each
@@ -1020,7 +1020,7 @@ class MultiTrack:
             If True, a melody note still sounding at the next (later) melody
             onset is cut to end there, across bar lines too, so no two melody
             notes sound at once (notes sharing an onset, e.g. a chord in
-            ``'hi_track'``, are left as they are). Default False.
+            ``'hi_track'``, are left as they are). Default True.
 
         Returns
         -------

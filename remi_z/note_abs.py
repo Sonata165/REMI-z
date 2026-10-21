@@ -354,7 +354,7 @@ class NoteStream:
         return [[note.onset, round(note.offset, 3), note.pitch] for note in self.notes]
 
     def get_melody(
-        self, mel_def: str = "hi_note_dur_plus", onset_tol: float = 0.05, trim_overlap: bool = False
+        self, mel_def: str = "hi_note_dur_plus", onset_tol: float = 0.05, trim_overlap: bool = True
     ) -> "NoteStream":
         """
         Extract the melody line as a new NoteStream.
@@ -388,7 +388,7 @@ class NoteStream:
             If True, a melody note still sounding when the next melody note
             starts is cut to end at that onset, so no two melody notes ever
             sound at once (this covers both the legato slack above and, for
-            ``'hi_note_dur_plus'``, a held note under a higher one). Default False.
+            ``'hi_note_dur_plus'``, a held note under a higher one). Default True.
 
         Returns
         -------
