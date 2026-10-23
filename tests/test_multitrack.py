@@ -1,5 +1,5 @@
 import pytest
-from remi_z.note import Note
+from remi_z.note import Note, NoteSeq
 from remi_z.track import Track
 from remi_z.bar import Bar
 from remi_z.multitrack import MultiTrack
@@ -258,10 +258,10 @@ class TestMultiTrackGetNotes:
         result = mt.get_all_notes_by_bar()
         assert len(result) == 3
 
-    def test_get_all_notes_by_bar_each_is_list(self):
+    def test_get_all_notes_by_bar_each_is_noteseq(self):
         mt = make_multitrack(n_bars=2)
         for bar_notes in mt.get_all_notes_by_bar():
-            assert isinstance(bar_notes, list)
+            assert isinstance(bar_notes, NoteSeq)
 
 
 # ============================================================
@@ -298,13 +298,13 @@ class TestMultiTrackFlatten:
         notes = mt.flatten().bars[0].tracks[0].notes
         assert [(n.onset, n.duration) for n in notes] == [(0, 12), (12, 12)]
 
-    def test_offset_overlap_kept_when_disabled(self):
+    def test_offset_overlap_within_bar_fixed(self):
         mt = MultiTrack(bars=[make_bar(notes_of_insts={
             0: {0: [(60, 48, 64)]},
             24: {12: [(60, 12, 64)]},
         })])
-        notes = mt.flatten(adjust_offset_overlap=False).bars[0].tracks[0].notes
-        assert [(n.onset, n.duration) for n in notes] == [(0, 48), (12, 12)]
+        notes = mt.flatten().bars[0].tracks[0].notes
+        assert [(n.onset, n.duration) for n in notes] == [(0, 12), (12, 12)]
 
     def test_offset_overlap_across_bar_line(self):
         mt = MultiTrack(bars=[
@@ -430,14 +430,6 @@ class TestFromMidiOffsetAdjustment:
         assert song_notes(MultiTrack.from_midi(fp)) == [
             (0, 0, 60, 12, 64), (0, 12, 60, 6, 70), (0, 24, 64, 12, 64)]
 
-    def test_disabled_keeps_old_behavior(self, tmp_path):
-        fp = write_midi(str(tmp_path / "a.mid"), [
-            (0, False, "piano 1", [(0, 48, 60, 64), (24, 36, 64, 64)]),
-            (0, False, "piano 2", [(12, 18, 60, 70), (24, 30, 64, 90)]),
-        ])
-        assert song_notes(MultiTrack.from_midi(fp, adjust_offset_overlap=False)) == [
-            (0, 0, 60, 48, 64), (0, 12, 60, 6, 70), (0, 24, 64, 6, 90), (0, 24, 64, 12, 64)]
-
     def test_across_bar_line(self, tmp_path):
         fp = write_midi(str(tmp_path / "a.mid"), [
             (0, False, "a", [(36, 72, 60, 64)]),
@@ -463,11 +455,10 @@ class TestFromMidiOffsetAdjustment:
         tracks = [
             (0, False, "piano", [(0, 48, 60, 64), (0, 12, 64, 64), (12, 24, 64, 64)]),  # touch
             (24, False, "guitar", [(12, 24, 60, 64)]),          # same pitch, other program
-            (0, True, "drums", [(0, 48, 36, 64), (12, 24, 36, 64), (12, 18, 36, 80)]),
         ]
         fp = write_midi(str(tmp_path / "a.mid"), tracks)
-        assert song_notes(MultiTrack.from_midi(fp)) == song_notes(
-            MultiTrack.from_midi(fp, adjust_offset_overlap=False))
+        assert song_notes(MultiTrack.from_midi(fp)) == [
+            (0, 0, 60, 48, 64), (0, 0, 64, 12, 64), (0, 12, 64, 12, 64), (24, 12, 60, 12, 64)]
 
     def test_program_mapped_tracks_not_adjusted_against_each_other(self, tmp_path):
         fp = write_midi(str(tmp_path / "a.mid"), [
@@ -515,7 +506,6 @@ class TestFromMidiOffsetAdjustment:
         out = str(tmp_path / "b.mid")
         mt.to_midi(out, verbose=False)
         assert song_notes(MultiTrack.from_midi(out)) == song_notes(mt)
-        assert song_notes(MultiTrack.from_midi(out, adjust_offset_overlap=False)) == song_notes(mt)
 
 
 # ============================================================

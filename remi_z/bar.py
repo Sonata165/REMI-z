@@ -2,7 +2,7 @@ import operator
 import numpy as np
 from typing import List, Dict, Tuple, Optional, Iterable
 
-from .note import Note
+from .note import Note, NoteSeq
 from .track import Track
 from .midi_encoding import convert_tempo_to_id, convert_id_to_tempo
 from .time_signature_utils import TimeSignatureUtil
@@ -255,17 +255,18 @@ class Bar:
         Returns a new Bar object; the original is not modified.
         Drum tracks are excluded from the merged result.
 
-        Only notes sharing the same onset and pitch are deduplicated; same-pitch
-        offset overlaps are kept, since notes held into the next bar can only be
-        fixed at song level (see ``MultiTrack.flatten`` / ``MultiTrack.adjust_offset_overlap``).
+        The merged notes form a valid NoteSeq: notes sharing an onset and pitch
+        are deduplicated and same-pitch overlaps within the bar are shortened.
+        Notes held into the next bar can only be fixed at song level (see
+        ``MultiTrack.flatten`` / ``MultiTrack.adjust_offset_overlap``).
 
         Returns
         -------
         Bar
-            A new Bar with one track (instrument 0) containing all
-            deduplicated notes from every non-drum track.
+            A new Bar with one track (instrument 0) containing the merged
+            notes of every non-drum track.
         """
-        all_notes = self.get_all_notes(include_drum=False, deduplicate=True)
+        all_notes = self.get_all_notes(include_drum=False)
 
         track = Track.from_note_list(inst_id=0, note_list=all_notes)
 
@@ -480,7 +481,6 @@ class Bar:
             insts = set(all_insts).intersection(of_insts)
 
         notes = self.get_all_notes(include_drum=False, of_insts=insts)
-        notes = deduplicate_notes(notes)
 
         for note in notes:
             onset_pos = min(round(note.onset / coeff), n_pos - 1)
@@ -504,11 +504,13 @@ class Bar:
         mt = MultiTrack.from_bars([self])
         mt.to_midi(midi_fp, tempo=tempo)
 
-    def get_all_notes(
-        self, include_drum=True, of_insts: List[int] = None, deduplicate=False
-    ) -> List[Note]:
+    def get_all_notes(self, include_drum=True, of_insts: List[int] = None) -> NoteSeq:
         """
-        Return all notes in the Bar sorted by onset, pitch, duration, velocity.
+        Return the notes of the Bar's tracks merged into one valid NoteSeq.
+
+        Merging makes the sequence valid across instruments: notes of different
+        tracks sharing an onset and pitch are kept once (longest, then loudest),
+        and same-pitch overlaps are shortened (see NoteSeq).
 
         Parameters
         ----------
@@ -517,15 +519,11 @@ class Bar:
         of_insts : List[int], optional
             Restrict to these instrument IDs.  ``None`` (default) returns
             notes from all instruments.
-        deduplicate : bool, optional
-            If ``True``, remove duplicate notes that share the same onset and
-            pitch, keeping the first occurrence (longest duration) per the
-            sorted order (default ``False``).
 
         Returns
         -------
-        List[Note]
-            Sorted, optionally deduplicated list of Note objects.
+        NoteSeq
+            New NoteSeq; the Note objects kept unchanged are shared with the tracks.
         """
         assert (
             isinstance(of_insts, (list, set)) or of_insts is None
@@ -541,24 +539,18 @@ class Bar:
             track = self.tracks[inst_id]
             if not include_drum and track.is_drum:
                 continue
-            all_notes.extend(track.get_all_notes())
+            all_notes.extend(track.notes)
 
-        all_notes.sort()
-
-        if deduplicate:
-            all_notes = deduplicate_notes(all_notes)
-
-        return all_notes
+        return NoteSeq(all_notes)
 
     @staticmethod
-    def _notes_to_content_seq(notes: List[Note], with_dur: bool, pitch_offset: int = 0) -> List[str]:
+    def _notes_to_content_seq(notes: NoteSeq, with_dur: bool, pitch_offset: int = 0) -> List[str]:
         """
-        Convert sorted notes to a content sequence (``o-X p-X [d-X] ... b-1``),
-        removing repeated notes with the same onset and pitch first.
+        Convert notes to a content sequence (``o-X p-X [d-X] ... b-1``).
         """
         bar_seq = []
         prev_pos = -1
-        for note in deduplicate_notes(notes):
+        for note in notes:
             if note.onset > prev_pos:
                 bar_seq.append(f"o-{note.onset}")
                 prev_pos = note.onset
@@ -645,8 +637,8 @@ class Bar:
         if len(notes) == 0:
             return -1
 
-        pitches = [note.pitch for note in notes]
-        return int(max(pitches) - min(pitches)) + 1
+        low, high = notes.get_pitch_range()
+        return int(high - low) + 1
 
     def get_chord(self):
         """

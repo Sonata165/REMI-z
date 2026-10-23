@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from remi_z.note import Note
+from remi_z.note import Note, NoteSeq
 from remi_z.track import Track
 from remi_z.bar import Bar, deduplicate_notes, check_inst_id
 
@@ -268,13 +268,25 @@ class TestBarGetAllNotes:
         assert len(notes) == 1
         assert notes[0].pitch == 72
 
-    def test_deduplicate(self):
+    def test_returns_noteseq(self):
+        assert isinstance(make_bar().get_all_notes(), NoteSeq)
+
+    def test_deduplicated_across_tracks(self):
         bar = Bar(id=0, notes_of_insts={
             0: {0: [(60, 12, 64)]},
             24: {0: [(60, 6, 64)]},
         })
-        notes = bar.get_all_notes(include_drum=False, deduplicate=True)
-        assert len(notes) == 1
+        notes = bar.get_all_notes(include_drum=False)
+        assert [(n.onset, n.pitch, n.duration) for n in notes] == [(0, 60, 12)]
+
+    def test_overlap_across_tracks_shortened_without_touching_tracks(self):
+        bar = Bar(id=0, notes_of_insts={
+            0: {0: [(60, 24, 64)]},
+            24: {12: [(60, 12, 64)]},
+        })
+        notes = bar.get_all_notes()
+        assert [(n.onset, n.duration) for n in notes] == [(0, 12), (12, 12)]
+        assert bar.tracks[0].notes[0].duration == 24
 
 
 # ============================================================

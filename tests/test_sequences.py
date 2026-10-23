@@ -54,6 +54,53 @@ class TestNoteSeq:
         with pytest.raises(AssertionError):
             NoteSeq().add((0, 60, 12, 64))
 
+    # --- validity ---
+
+    def test_duplicate_keeps_longest_then_loudest(self):
+        seq = NoteSeq([make_note(duration=6, velocity=100), make_note(duration=12, velocity=50), make_note(duration=12, velocity=80)])
+        assert [(n.duration, n.velocity) for n in seq] == [(12, 80)]
+
+    def test_same_pitch_overlap_shortened(self):
+        seq = NoteSeq([make_note(onset=0, duration=24), make_note(onset=12, duration=12)])
+        assert [(n.onset, n.duration) for n in seq] == [(0, 12), (12, 12)]
+
+    def test_touching_notes_kept(self):
+        seq = NoteSeq([make_note(onset=0, duration=12), make_note(onset=12, duration=12)])
+        assert [(n.onset, n.duration) for n in seq] == [(0, 12), (12, 12)]
+
+    def test_different_pitch_overlap_kept(self):
+        seq = NoteSeq([make_note(onset=0, duration=24, pitch=60), make_note(onset=12, duration=12, pitch=64)])
+        assert [n.duration for n in seq] == [24, 12]
+
+    def test_overlap_shortened_against_next_onset_only(self):
+        seq = NoteSeq([make_note(onset=0, duration=48), make_note(onset=12, duration=6), make_note(onset=24, duration=6)])
+        assert [(n.onset, n.duration) for n in seq] == [(0, 12), (12, 6), (24, 6)]
+
+    def test_input_notes_not_modified(self):
+        long_note = make_note(onset=0, duration=24)
+        NoteSeq([long_note, make_note(onset=12)])
+        assert long_note.duration == 24
+
+    def test_add_drops_duplicate(self):
+        seq = NoteSeq([make_note(duration=12)])
+        seq.add(make_note(duration=6))
+        assert [n.duration for n in seq] == [12]
+
+    def test_add_shortens_overlap(self):
+        seq = NoteSeq([make_note(onset=0, duration=24)])
+        seq.add(make_note(onset=12))
+        assert [(n.onset, n.duration) for n in seq] == [(0, 12), (12, 12)]
+
+    def test_quantize_merges_duplicates(self):
+        seq = NoteSeq([make_note(onset=1), make_note(onset=2)])
+        seq.quantize(6)
+        assert [(n.onset, n.duration) for n in seq] == [(0, 12)]
+
+    def test_transpose_wrap_drops_duplicate(self):
+        seq = NoteSeq([make_note(pitch=127), make_note(pitch=115)])
+        seq.transpose(12)
+        assert [n.pitch for n in seq] == [127]
+
     # --- editing methods ---
 
     def test_transpose(self):

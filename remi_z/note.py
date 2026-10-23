@@ -108,31 +108,65 @@ class Note:
 
 class NoteSeq:
     """
-    A sequence of Note objects, always kept sorted.
+    A valid sequence of Note objects: always sorted, with no duplicates and no
+    overlapping notes of the same pitch.
     Can be used to represent the notes of a single instrument within a bar.
 
-    Notes are ordered by ``Note.__lt__``: onset (ascending), then pitch (descending),
-    then duration (descending), then velocity (descending). The order is restored on
-    construction, on every insertion, and after every editing method of this class.
+    - Order: by ``Note.__lt__``: onset (ascending), then pitch (descending),
+      then duration (descending), then velocity (descending).
+    - No duplicates: of several notes with the same onset and pitch, only the
+      first in that order (longest, then loudest) is kept.
+    - No same-pitch overlap: a note still sounding when the next note of the same
+      pitch starts is shortened to end at that onset.
 
-    Editing a Note's fields directly (e.g. ``note.onset = 3``) bypasses this and may
-    leave the sequence unsorted; use ``transpose``, ``quantize`` and ``set_velocity``
-    instead.
+    These rules are applied on construction, on every insertion, and after every
+    editing method of this class. Only durations are shortened, never lengthened,
+    and a shortened note is replaced by a new Note object, so Note objects shared
+    with other containers are never modified by them.
+
+    Editing a Note's fields directly (e.g. ``note.onset = 3``) bypasses these rules;
+    use ``transpose``, ``quantize`` and ``set_velocity`` instead.
     """
 
     def __init__(self, note_list: Optional[Iterable[Note]] = None):
         """
         Create a NoteSeq from any iterable of Note objects.
 
-        The input is copied and sorted; the input itself is not modified. The Note
-        objects are shared, not copied.
+        The input is copied and made valid (see the class docstring); the input
+        itself is not modified. The Note objects that are kept unchanged are
+        shared, not copied.
         """
-        self._notes: List[Note] = sorted(note_list) if note_list is not None else []
+        self._notes: List[Note] = list(note_list) if note_list is not None else []
+        self._make_valid()
+
+    def _make_valid(self):
+        """
+        Sort the notes, drop duplicates and shorten same-pitch overlaps.
+        """
+        self._notes.sort()
+        valid = []
+        last_idx_of_pitch = {}
+        for note in self._notes:
+            idx = last_idx_of_pitch.get(note.pitch)
+            if idx is not None:
+                prev = valid[idx]
+                if prev.onset == note.onset:
+                    continue
+                if prev.onset + prev.duration > note.onset:
+                    valid[idx] = Note(
+                        onset=prev.onset,
+                        duration=note.onset - prev.onset,
+                        pitch=prev.pitch,
+                        velocity=prev.velocity,
+                    )
+            last_idx_of_pitch[note.pitch] = len(valid)
+            valid.append(note)
+        self._notes = valid
 
     @property
     def notes(self) -> List[Note]:
         """
-        A sorted copy of the notes. Changing this list does not change the NoteSeq.
+        A copy of the notes as a list. Changing this list does not change the NoteSeq.
         """
         return list(self._notes)
 
@@ -159,19 +193,21 @@ class NoteSeq:
 
     def add(self, note: Note):
         """
-        Insert one note at its sorted position.
+        Insert one note. The sequence is made valid again afterwards, so the note
+        may be dropped (duplicate) or shorten/be shortened by a same-pitch note.
         """
         assert isinstance(note, Note), "note must be a Note object"
         bisect.insort(self._notes, note)
+        self._make_valid()
 
     def extend(self, notes: Iterable[Note]):
         """
-        Insert several notes and restore the sorted order.
+        Insert several notes. The sequence is made valid again afterwards.
         """
         notes = list(notes)
         assert all(isinstance(note, Note) for note in notes), "notes must be Note objects"
         self._notes.extend(notes)
-        self._notes.sort()
+        self._make_valid()
 
     def transpose(self, semitones: int):
         """
@@ -186,7 +222,7 @@ class NoteSeq:
                 note.pitch += 12
             while note.pitch > 127:
                 note.pitch -= 12
-        self._notes.sort()
+        self._make_valid()
 
     def quantize(self, step: int):
         """
@@ -198,7 +234,7 @@ class NoteSeq:
         for note in self._notes:
             note.onset = round(note.onset / step) * step
             note.duration = max(1, round(note.duration / step)) * step
-        self._notes.sort()
+        self._make_valid()
 
     def set_velocity(self, velocity: int):
         """
@@ -208,7 +244,7 @@ class NoteSeq:
         assert 0 <= velocity <= 127, "velocity must be in the range of [0, 127]"
         for note in self._notes:
             note.velocity = velocity
-        self._notes.sort()
+        self._make_valid()
 
     def get_avg_pitch(self) -> float:
         """

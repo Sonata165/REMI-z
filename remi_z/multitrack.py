@@ -312,7 +312,6 @@ class MultiTrack:
         cls,
         midi_fp: str,
         support_same_program_multi_instance=False,
-        adjust_offset_overlap: bool = True,
         program_map: Optional[Dict[Union[str, int], int]] = None,
     ):
         """
@@ -322,15 +321,17 @@ class MultiTrack:
         program are merged into one track. To keep such tracks apart, give them
         different programs with program_map.
 
+        Within each track, same-pitch notes sharing an onset are deduplicated
+        (longest kept) and offsets are shortened so that no note overlaps a later
+        note of the same pitch, also across bar lines (see
+        midi_encoding.adjust_pos_info_offset_overlap_). Merging tracks and
+        quantizing produce such overlaps, which MIDI cannot represent faithfully.
+        Across bar lines, drum tracks are left unchanged; within a bar every track
+        holds a valid NoteSeq, drums included.
+
         Args:
             support_same_program_multi_instance: No longer supported; must be False.
                 Use program_map instead.
-            adjust_offset_overlap: If True (default), within each track, same-pitch notes
-                sharing an onset are deduplicated (longest kept) and offsets are shortened so
-                that no note overlaps a later note of the same pitch, also across bar lines
-                (see midi_encoding.adjust_pos_info_offset_overlap_). Merging tracks and
-                quantizing produce such overlaps, which MIDI cannot represent faithfully.
-                Drum tracks are left unchanged.
             program_map: Optional dict that sets the program of MIDI tracks before
                 same-program tracks are merged, e.g. {'mel': 13, 'acc': 0}. Keys are
                 track names (str) or track indices (int); values are GM programs
@@ -362,8 +363,7 @@ class MultiTrack:
         # tempo: only at pos where it changes, otherwise None
         # insts_notes: only at pos where the note starts, otherwise None
 
-        if adjust_offset_overlap:
-            pos_info = adjust_pos_info_offset_overlap_(pos_info)
+        pos_info = adjust_pos_info_offset_overlap_(pos_info)
 
         # Fill time signature and tempo info to the first pos of each bar
         pos_info = fill_pos_ts_and_tempo_(pos_info)
@@ -858,20 +858,17 @@ class MultiTrack:
                 all_notes.extend(track.get_note_list())
         return all_notes
 
-    def flatten(self, adjust_offset_overlap: bool = True) -> "MultiTrack":
+    def flatten(self) -> "MultiTrack":
         """
         Flatten the content of MultiTrack object to a single track, but still save to a MultiTrack object.
         Keep all info the same, such as bars, time signature, tempo, etc.
         Remove drum tracks, if any.
 
-        This will merge all tracks into a single track. Notes sharing the same onset and
-        pitch within a bar are deduplicated (longest duration kept), see :meth:`Bar.flatten`.
-
-        Args:
-            adjust_offset_overlap: If True (default), afterwards shorten offsets so that no
-                note overlaps a later note of the same pitch, also across bar lines (see
-                :meth:`adjust_offset_overlap`). Merging tracks routinely produces such
-                overlaps, which MIDI cannot represent faithfully.
+        This will merge all tracks into a single track. Within a bar the merged notes form
+        a valid NoteSeq (duplicates dropped, same-pitch overlaps shortened), see
+        :meth:`Bar.flatten`. Afterwards, notes held into a later bar that overlap a note of
+        the same pitch there are shortened too (see :meth:`adjust_offset_overlap`). Merging
+        tracks routinely produces such overlaps, which MIDI cannot represent faithfully.
         """
         assert len(self.bars) > 0, "MultiTrack must have at least one bar"
 
@@ -880,10 +877,7 @@ class MultiTrack:
             t = bar.flatten()
             new_bars.append(t)
 
-        ret = MultiTrack(bars=new_bars)
-        if adjust_offset_overlap:
-            ret = ret.adjust_offset_overlap()
-        return ret
+        return MultiTrack(bars=new_bars).adjust_offset_overlap()
 
     def _bar_starts(self) -> List[int]:
         """Song-level position of each bar's start (REMI-z: 12 positions per quarter
@@ -983,9 +977,9 @@ class MultiTrack:
 
     def get_all_notes_by_bar(
         self, include_drum=True, of_insts: List[int] = None
-    ) -> List[List[Note]]:
+    ) -> List[NoteSeq]:
         """
-        Get all notes in the MultiTrack.
+        Get all notes in the MultiTrack, as one valid NoteSeq per bar (see Bar.get_all_notes).
         """
         all_notes = []
         for bar in self.bars:

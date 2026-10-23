@@ -1,4 +1,4 @@
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Tuple, Union
 
 from .note import Note, NoteSeq
 
@@ -17,9 +17,10 @@ class Track:
     is_drum : bool
         True when inst_id == 128. Read-only; derived from inst_id.
     notes : NoteSeq
-        All notes in this track, always sorted by onset (ascending), then pitch
-        (descending), then duration (descending), then velocity (descending).
-        Assigning a list or NoteSeq replaces the notes with a sorted copy.
+        All notes in this track, always valid: sorted by onset (ascending), then
+        pitch (descending), then duration (descending), then velocity
+        (descending), with no duplicates and no same-pitch overlaps (see NoteSeq).
+        Assigning a list or NoteSeq replaces the notes with a valid copy.
     non_empty_pos : List[int]
         Sorted list of onset positions at which at least one note starts.
         Read-only; derived from notes.
@@ -48,21 +49,21 @@ class Track:
         ]
 
     @classmethod
-    def from_note_list(cls, inst_id: int, note_list: List[Note]):
+    def from_note_list(cls, inst_id: int, note_list: Union[List[Note], NoteSeq]):
         """
-        Create a Track from a list of Note objects.
+        Create a Track from a list or NoteSeq of Note objects.
 
-        The input list is copied and will not be modified. The Note objects
-        themselves are shared with the input, not copied.
+        The input is copied and made valid (see NoteSeq) and will not be
+        modified. The Note objects kept unchanged are shared with the input.
 
         Parameters
         ----------
         inst_id : int
             General MIDI program number (0–127), or 128 for drums.
-        note_list : List[Note]
+        note_list : List[Note] or NoteSeq
             Notes to include in this track.
         """
-        assert isinstance(note_list, list), "note_list must be a list"
+        assert isinstance(note_list, (list, NoteSeq)), "note_list must be a list or NoteSeq"
 
         ret = cls(inst_id=inst_id, notes={})
         ret.notes = note_list
@@ -130,14 +131,14 @@ class Track:
         """
         return self.avg_pitch
 
-    def get_all_notes(self) -> List[Note]:
+    def get_all_notes(self) -> NoteSeq:
         """
-        Return the Note objects in this track as a new list, sorted by onset.
+        Return the notes of this track as a new NoteSeq.
 
-        Changing the returned list does not change the track, but the Note
-        objects in it are shared with the track.
+        Adding to or removing from the returned NoteSeq does not change the
+        track, but the Note objects in it are shared with the track.
         """
-        return self._notes.notes
+        return NoteSeq(self._notes)
 
     def to_remiz_seq(self, with_velocity=False) -> List[str]:
         """

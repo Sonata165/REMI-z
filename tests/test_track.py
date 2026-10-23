@@ -165,9 +165,9 @@ class TestTrackGetters:
         t = Track.from_note_list(inst_id=0, note_list=[make_note(pitch=60)])
         assert t.get_avg_pitch() == pytest.approx(60.0)
 
-    def test_get_all_notes_returns_list(self):
+    def test_get_all_notes_returns_noteseq(self):
         t = make_track()
-        assert isinstance(t.get_all_notes(), list)
+        assert isinstance(t.get_all_notes(), NoteSeq)
 
     def test_get_note_list_format(self):
         t = Track(inst_id=0, notes={0: [(60, 12, 64)]})
@@ -315,8 +315,19 @@ class TestTrackDerivedValues:
 
     def test_get_all_notes_is_a_copy(self):
         t = make_track()
-        t.get_all_notes().clear()
+        t.get_all_notes().add(make_note(onset=36))
         assert len(t) == 2
+
+    def test_from_note_list_accepts_noteseq(self):
+        t = Track.from_note_list(inst_id=0, note_list=NoteSeq([make_note(onset=12), make_note(onset=0)]))
+        assert [n.onset for n in t.notes] == [0, 12]
+
+    def test_notes_made_valid(self):
+        t = Track.from_note_list(inst_id=0, note_list=[
+            make_note(onset=0, pitch=60, duration=24), make_note(onset=0, pitch=60, duration=6),
+            make_note(onset=12, pitch=60, duration=12),
+        ])
+        assert [(n.onset, n.duration) for n in t.notes] == [(0, 12), (12, 12)]
 
     def test_remiz_seq_after_quantize_reorders(self):
         t = make_track(notes={1: [(60, 12, 64)], 2: [(72, 12, 64)]})
