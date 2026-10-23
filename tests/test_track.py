@@ -55,14 +55,6 @@ class TestTrackInit:
     def test_is_drum_true(self):
         assert Track(inst_id=128, notes={}).is_drum is True
 
-    def test_track_id_default_none(self):
-        t = Track(inst_id=0, notes={})
-        assert t.track_id is None
-
-    def test_track_id_stored(self):
-        t = Track(inst_id=0, notes={}, track_id=5)
-        assert t.track_id == 5
-
 
 # ============================================================
 # Construction via from_note_list
@@ -104,10 +96,6 @@ class TestTrackFromNoteList:
     def test_requires_list(self):
         with pytest.raises(AssertionError):
             Track.from_note_list(inst_id=0, note_list=(make_note(),))
-
-    def test_track_id(self):
-        t = Track.from_note_list(inst_id=0, note_list=[], track_id=3)
-        assert t.track_id == 3
 
 
 # ============================================================

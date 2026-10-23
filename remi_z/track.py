@@ -14,9 +14,6 @@ class Track:
     ----------
     inst_id : int
         General MIDI program number (0–127), or 128 for drums.
-    track_id : int or None
-        Optional secondary identifier used when multiple tracks share the
-        same program ID (e.g., two piano parts).
     is_drum : bool
         True when inst_id == 128. Read-only; derived from inst_id.
     notes : NoteSeq
@@ -31,7 +28,7 @@ class Track:
         the track is a drum track. Read-only; derived from notes.
     """
 
-    def __init__(self, inst_id: int, notes: Dict[int, List[Tuple[int, int, int]]], track_id=None):
+    def __init__(self, inst_id: int, notes: Dict[int, List[Tuple[int, int, int]]]):
         """
         Create a Track from a position-indexed note dictionary.
 
@@ -42,12 +39,8 @@ class Track:
         notes : Dict[int, List[Tuple[int, int, int]]]
             Mapping from onset position to a list of raw note tuples
             (pitch, duration, velocity) at that position.
-        track_id : int or None
-            Optional secondary identifier for disambiguation when multiple
-            tracks share the same inst_id.
         """
         self.inst_id = inst_id
-        self.track_id = track_id
         self.notes = [
             Note(onset=pos, duration=duration, pitch=pitch, velocity=velocity)
             for pos, notes_of_pos in notes.items()
@@ -55,7 +48,7 @@ class Track:
         ]
 
     @classmethod
-    def from_note_list(cls, inst_id: int, note_list: List[Note], track_id=None):
+    def from_note_list(cls, inst_id: int, note_list: List[Note]):
         """
         Create a Track from a list of Note objects.
 
@@ -68,13 +61,10 @@ class Track:
             General MIDI program number (0–127), or 128 for drums.
         note_list : List[Note]
             Notes to include in this track.
-        track_id : int or None
-            Optional secondary identifier for disambiguation when multiple
-            tracks share the same inst_id.
         """
         assert isinstance(note_list, list), "note_list must be a list"
 
-        ret = cls(inst_id=inst_id, notes={}, track_id=track_id)
+        ret = cls(inst_id=inst_id, notes={})
         ret.notes = note_list
         return ret
 

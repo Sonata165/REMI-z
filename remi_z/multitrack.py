@@ -4,7 +4,7 @@ import os
 import miditoolkit
 import pretty_midi
 import numpy as np
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 from .note import Note, NoteSeq
 from .bar import Bar, deduplicate_notes
@@ -37,6 +37,13 @@ class MultiTrack:
         Deduplicated set of time signatures present across all bars.
     tempos : List[float]
         Deduplicated set of tempos (BPM) present across all bars.
+    voice : List[int]
+        Song-level track order: instrument IDs of the whole piece, from the
+        highest average pitch (over all notes of that instrument in all bars) to
+        the lowest, drums last. Computed when the MultiTrack is constructed and
+        used for every bar at serialization. It is not recomputed when notes are
+        edited later; ``filter_tracks``, ``remove_tracks`` and
+        ``change_instrument`` keep it in sync, and ``update_voice`` recomputes it.
     ts_dict : dict
         Dictionary mapping time-signature tokens to ``(numerator, denominator)``
         tuples, loaded from ``dict_time_signature.yaml``.
@@ -55,6 +62,7 @@ class MultiTrack:
         self.bars = bars
 
         self.update_ts_and_tempo()
+        self.update_voice()
 
         # Load the time signature dictionary
         ts_fp = os.path.join(os.path.dirname(__file__), "dict_time_signature.yaml")
@@ -77,6 +85,28 @@ class MultiTrack:
             self.tempos.add(bar.tempo)
         self.time_signatures = list(self.time_signatures)
         self.tempos = list(self.tempos)
+
+    def update_voice(self):
+        """
+        Recompute ``self.voice`` from the current bars.
+
+        Instruments are ordered by their average pitch over all their notes in
+        all bars, highest first; drums (128) come last, and an instrument with no
+        notes counts as average pitch 0. Ties keep the order of first appearance.
+        """
+        pitch_sum = {}
+        n_notes = {}
+        for bar in self.bars:
+            for inst_id, track in bar.tracks.items():
+                pitch_sum[inst_id] = pitch_sum.get(inst_id, 0) + sum(n.pitch for n in track.notes)
+                n_notes[inst_id] = n_notes.get(inst_id, 0) + len(track)
+
+        def avg_pitch(inst_id):
+            if inst_id == 128:
+                return -1
+            return pitch_sum[inst_id] / n_notes[inst_id] if n_notes[inst_id] > 0 else 0
+
+        self.voice = sorted(pitch_sum, key=lambda inst_id: -avg_pitch(inst_id))
 
     def __len__(self):
         return len(self.bars)
@@ -120,14 +150,6 @@ class MultiTrack:
                     continue
                 else:
                     track.notes.set_velocity(velocity)
-
-    def set_instrument(self, track_name:str, new_inst_id: int):
-        '''
-        When in the multi-instance for same program ID setting,
-        Assign new instrument id according to the track name. 
-        '''
-        for bar in self.bars:
-            bar.assign_instrument(track_name, new_inst_id)
 
     def key_norm(self):
         """
@@ -216,14 +238,15 @@ class MultiTrack:
         Get the instrumentation layout of the MultiTrack object.
         A list of list of tokens:
         [[i-0, i-24, i-32, b-1], [i-0, i-24, i-40, b-1], ...]
-        Representing instrument and voice of each bar.
+        Representing the instruments of each bar, in the song-level voice order
+        (``self.voice``) used for serialization.
         """
         inst_conf = []
         for bar in self.bars:
             bar_inst_conf = []
 
             # Get instruments in this bar
-            inst_of_the_bar = [f"i-{i}" for i in bar.get_unique_insts()]
+            inst_of_the_bar = [f"i-{i}" for i in bar.get_unique_insts(voice=self.voice)]
             bar_inst_conf.extend(inst_of_the_bar)
             bar_inst_conf.append("b-1")
             inst_conf.append(bar_inst_conf)
@@ -290,21 +313,34 @@ class MultiTrack:
         midi_fp: str,
         support_same_program_multi_instance=False,
         adjust_offset_overlap: bool = True,
+        program_map: Optional[Dict[Union[str, int], int]] = None,
     ):
         """
         Create a MultiTrack object from a MIDI file.
 
-        MIDI tracks with the same program are merged into one track, unless
-        support_same_program_multi_instance (then one track per (program, track name)).
+        A bar holds at most one track per program, so MIDI tracks with the same
+        program are merged into one track. To keep such tracks apart, give them
+        different programs with program_map.
 
         Args:
+            support_same_program_multi_instance: No longer supported; must be False.
+                Use program_map instead.
             adjust_offset_overlap: If True (default), within each track, same-pitch notes
                 sharing an onset are deduplicated (longest kept) and offsets are shortened so
                 that no note overlaps a later note of the same pitch, also across bar lines
                 (see midi_encoding.adjust_pos_info_offset_overlap_). Merging tracks and
                 quantizing produce such overlaps, which MIDI cannot represent faithfully.
                 Drum tracks are left unchanged.
+            program_map: Optional dict that sets the program of MIDI tracks before
+                same-program tracks are merged, e.g. {'mel': 13, 'acc': 0}. Keys are
+                track names (str) or track indices (int); values are GM programs
+                (0-127) or 128 for drums. An index key takes precedence over a name key.
         """
+        if support_same_program_multi_instance:
+            raise ValueError(
+                "support_same_program_multi_instance is no longer supported: a bar holds at most "
+                "one track per program. Use program_map to give same-program tracks different programs."
+            )
         assert isinstance(midi_fp, str), "midi_fp must be a string"
         assert os.path.exists(midi_fp), "midi_fp does not exist"
 
@@ -318,7 +354,7 @@ class MultiTrack:
             tracks=None,
             remove_same_notes=False,
             end_offset=0,
-            multi_instance_same_program_support=support_same_program_multi_instance,  # support multiple instances of the same program ID
+            program_map=program_map,
         )
         # bar: every pos
         # ts: only at pos where it changes, otherwise None
@@ -513,26 +549,56 @@ class MultiTrack:
 
         return cls(bars=bar_seqs)
 
-    def to_remiz_seq(self, with_ts=False, with_tempo=False, with_velocity=False):
+    def to_remiz_seq(
+        self,
+        with_ts=False,
+        with_tempo=False,
+        with_velocity=False,
+        include_drum=False,
+        voice: Optional[List[int]] = None,
+    ):
         """
         Convert the MultiTrack object to a REMI-z sequence of tokens.
+
+        Args:
+            with_ts: Add a time-signature token at the start of every bar.
+            with_tempo: Add a tempo token at the start of every bar.
+            with_velocity: Add a velocity token after every note.
+            include_drum: Include drum tracks (default False).
+            voice: Track order as a list of instrument IDs, used for every bar.
+                Defaults to ``self.voice``. It must list every instrument of the piece.
         """
+        if voice is None:
+            voice = self.voice
         ret = []
         for bar in self.bars:
-            bar_seq = []
-
             bar_seq = bar.to_remiz_seq(
-                with_ts=with_ts, with_tempo=with_tempo, with_velocity=with_velocity
+                with_ts=with_ts,
+                with_tempo=with_tempo,
+                with_velocity=with_velocity,
+                include_drum=include_drum,
+                voice=voice,
             )
             ret.extend(bar_seq)
         return ret
 
-    def to_remiz_str(self, with_ts=False, with_tempo=False, with_velocity=False):
+    def to_remiz_str(
+        self,
+        with_ts=False,
+        with_tempo=False,
+        with_velocity=False,
+        include_drum=False,
+        voice: Optional[List[int]] = None,
+    ):
         """
-        Convert the MultiTrack object to a REMI-z string.
+        Convert the MultiTrack object to a REMI-z string. See :meth:`to_remiz_seq`.
         """
         ret = self.to_remiz_seq(
-            with_ts=with_ts, with_tempo=with_tempo, with_velocity=with_velocity
+            with_ts=with_ts,
+            with_tempo=with_tempo,
+            with_velocity=with_velocity,
+            include_drum=include_drum,
+            voice=voice,
         )
         return " ".join(ret)
 
@@ -878,13 +944,8 @@ class MultiTrack:
 
         new_bars = []
         for i, bar in enumerate(self.bars):
-            new_bar = Bar(
-                id=bar.bar_id,
-                notes_of_insts={},
-                time_signature=bar.time_signature,
-                tempo=bar.tempo,
-            )
-            for tid, track in bar.tracks.items():  # keeps the track order
+            new_tracks = []
+            for tid, track in bar.tracks.items():
                 if track.is_drum and not include_drum:
                     notes = [
                         Note(onset=n.onset, duration=n.duration, pitch=n.pitch, velocity=n.velocity)
@@ -892,13 +953,19 @@ class MultiTrack:
                     ]
                 else:
                     notes = adjusted.get(i, {}).get(tid, [])
-                new_track = Track.from_note_list(
-                    inst_id=track.inst_id, note_list=notes, track_id=track.track_id
-                )
-                new_bar.tracks[tid] = new_track
+                new_tracks.append(Track.from_note_list(inst_id=track.inst_id, note_list=notes))
+            new_bar = Bar.from_tracks(
+                bar_id=bar.bar_id,
+                track_list=new_tracks,
+                time_signature=bar.time_signature,
+                tempo=bar.tempo,
+            )
+            new_bar.voice = list(bar.voice)  # keeps the track order
             new_bars.append(new_bar)
 
-        return MultiTrack(bars=new_bars)
+        ret = MultiTrack(bars=new_bars)
+        ret.voice = list(self.voice)
+        return ret
 
     def get_all_notes(
         self, include_drum=True, of_insts: List[int] = None
@@ -980,9 +1047,8 @@ class MultiTrack:
         Extract the melody of the whole song as a new MultiTrack in which each
         bar holds a single Track of melody notes.
 
-        Unlike ``get_melody``, this works on one timeline for the whole song, not
-        bar by bar: a note held across a bar line still counts as sounding in the
-        next bar.
+        This works on one timeline for the whole song, not bar by bar: a note
+        held across a bar line still counts as sounding in the next bar.
 
         Parameters
         ----------
@@ -1095,43 +1161,6 @@ class MultiTrack:
             )
         return MultiTrack(bars=bars)
 
-    def get_melody(self, mel_def: str, inst_id: int = 0) -> "MultiTrack":
-        """
-        Extract the melody of every bar as a new MultiTrack in which each bar
-        holds a single Track of melody notes.
-
-        NOTE: This algorithm calculates the melody for each bar independently, so
-        a note held across a bar line is not seen by the next bar. Use
-        ``get_melody_of_song`` to extract on one timeline for the whole song.
-
-        Parameters
-        ----------
-        mel_def : str
-            Melody definition, passed to ``Bar.get_melody`` for every bar:
-            ``'hi_track'``, ``'hi_note'`` or ``'hi_note_dur'``.
-        inst_id : int, optional
-            GM program number of the melody Track in every bar (default ``0``).
-            The melody can come from different instruments in different bars
-            (or, for ``'hi_note'``, within one bar), so one fixed program is used.
-
-        Returns
-        -------
-        MultiTrack
-            Same number of bars as ``self``, each with the source bar's id,
-            time signature and tempo. Bars with no melody notes (empty, or only
-            drums) have no tracks, like empty bars elsewhere in REMI-z. The notes
-            are new Note objects, so editing the result leaves ``self`` untouched.
-        """
-        assert isinstance(inst_id, int), "inst_id must be an integer"
-        assert 0 <= inst_id <= 127, "inst_id must be in the range of [0, 127]"
-
-        notes_per_bar = []
-        for bar in self.bars:
-            has_pitched_track = any(not track.is_drum for track in bar.tracks.values())
-            mel_notes = bar.get_melody(mel_def) if has_pitched_track else []
-            notes_per_bar.append([(n.onset, n.pitch, n.duration, n.velocity) for n in mel_notes])
-        return self._melody_to_multitrack(notes_per_bar, inst_id)
-
     def insert_empty_bars_at_front(self, num_bars):
         """
         Insert empty bars at the front of the MultiTrack object.
@@ -1161,21 +1190,17 @@ class MultiTrack:
 
         new_bars = []
         for bar1, bar2 in zip(self.bars, other.bars):
-            # Merge the two bars
-            merged_bar = Bar(
-                id=bar1.bar_id,
-                notes_of_insts={},
+            # Tracks of other all become other_prog_id; same-instrument tracks are merged by from_tracks
+            track_list = list(bar1.tracks.values()) + [
+                Track.from_note_list(inst_id=other_prog_id, note_list=list(track.notes))
+                for track in bar2.tracks.values()
+            ]
+            merged_bar = Bar.from_tracks(
+                bar_id=bar1.bar_id,
+                track_list=track_list,
                 time_signature=bar1.time_signature,
                 tempo=bar1.tempo,
             )
-            for inst_id, track in bar1.tracks.items():
-                merged_bar.tracks[inst_id] = track
-            for inst_id, track in bar2.tracks.items():
-                track.set_inst_id(other_prog_id)
-                if other_prog_id not in merged_bar.tracks:
-                    merged_bar.tracks[other_prog_id] = track
-                else:
-                    merged_bar.tracks[other_prog_id].notes.extend(track.notes)
             new_bars.append(merged_bar)
 
         return MultiTrack(bars=new_bars)
@@ -1200,6 +1225,7 @@ class MultiTrack:
         """
         for bar in self.bars:
             bar.filter_tracks(insts=insts)
+        self.voice = [inst_id for inst_id in self.voice if inst_id in set(insts)]
 
     def remove_tracks(self, insts: List[int]):
         """
@@ -1210,13 +1236,24 @@ class MultiTrack:
                 inst_id for inst_id in bar.tracks.keys() if inst_id not in insts
             ]
             bar.filter_tracks(insts=insts_to_keep)
+        self.voice = [inst_id for inst_id in self.voice if inst_id not in set(insts)]
 
     def change_instrument(self, old_inst_id: int, new_inst_id: int):
         """
         Change the instrument ID of the tracks in the MultiTrack object.
+
+        The instrument keeps its place in ``self.voice``; if ``new_inst_id`` is
+        already in the piece, the two are merged at the place of ``new_inst_id``.
         """
         for bar in self.bars:
             bar.change_instrument(old_inst_id=old_inst_id, new_inst_id=new_inst_id)
+
+        if old_inst_id not in self.voice or old_inst_id == new_inst_id:
+            return
+        if new_inst_id in self.voice:
+            self.voice.remove(old_inst_id)
+        else:
+            self.voice[self.voice.index(old_inst_id)] = new_inst_id
 
 
 def save_remiz_str_to_midi(remiz_str: str, midi_fp: str):

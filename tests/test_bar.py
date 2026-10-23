@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from remi_z.note import Note
 from remi_z.track import Track
-from remi_z.bar import Bar, deduplicate_notes
+from remi_z.bar import Bar, deduplicate_notes, check_inst_id
 
 
 def make_note(onset=0, duration=12, pitch=60, velocity=64):
@@ -79,6 +79,109 @@ class TestBarInit:
         bar = make_bar()
         assert repr(bar) == str(bar)
 
+    def test_tuple_key_rejected(self):
+        with pytest.raises(TypeError, match="program_map"):
+            Bar(id=0, notes_of_insts={(0, "piano"): {0: [(60, 12, 64)]}})
+
+    def test_string_key_rejected(self):
+        with pytest.raises(TypeError):
+            Bar(id=0, notes_of_insts={"piano": {0: [(60, 12, 64)]}})
+
+    def test_out_of_range_key_rejected(self):
+        with pytest.raises(ValueError):
+            Bar(id=0, notes_of_insts={129: {0: [(60, 12, 64)]}})
+
+    def test_numpy_int_key_accepted(self):
+        bar = Bar(id=0, notes_of_insts={np.int64(5): {0: [(60, 12, 64)]}})
+        assert list(bar.tracks) == [5]
+        assert type(bar.voice[0]) is int
+
+    def test_zero_tempo_rejected(self):
+        with pytest.raises(AssertionError):
+            Bar(id=0, notes_of_insts={}, tempo=0)
+
+
+# ============================================================
+# voice
+# ============================================================
+
+class TestBarVoice:
+
+    def make_three_inst_bar(self):
+        return Bar(id=0, notes_of_insts={
+            0: {0: [(60, 12, 64)]},
+            128: {0: [(36, 12, 64)]},
+            24: {0: [(72, 12, 64)]},
+            33: {0: [(40, 12, 64)]},
+        })
+
+    def test_voice_highest_avg_pitch_first(self):
+        assert self.make_three_inst_bar().voice == [24, 0, 33, 128]
+
+    def test_empty_bar_voice(self):
+        assert Bar(id=0, notes_of_insts={}).voice == []
+
+    def test_tracks_dict_in_voice_order(self):
+        bar = self.make_three_inst_bar()
+        assert list(bar.tracks) == bar.voice
+
+    def test_voice_not_recomputed_after_edit(self):
+        bar = self.make_three_inst_bar()
+        bar.tracks[33].notes.transpose(48)
+        assert bar.voice == [24, 0, 33, 128]
+        assert bar.to_remiz_seq()[0] == "i-24"
+
+    def test_serialization_uses_voice_by_default(self):
+        bar = self.make_three_inst_bar()
+        insts = [t for t in bar.to_remiz_seq(include_drum=True) if t.startswith("i-")]
+        assert insts == ["i-24", "i-0", "i-33", "i-128"]
+
+    def test_serialization_with_voice_param(self):
+        bar = self.make_three_inst_bar()
+        seq = bar.to_remiz_seq(voice=[33, 0, 24, 128])
+        assert [t for t in seq if t.startswith("i-")] == ["i-33", "i-0", "i-24"]
+        assert bar.to_remiz_str(voice=[33, 0, 24, 128]) == " ".join(seq)
+
+    def test_voice_param_may_list_absent_insts(self):
+        bar = self.make_three_inst_bar()
+        seq = bar.to_remiz_seq(voice=[73, 33, 0, 24, 128, 40])
+        assert [t for t in seq if t.startswith("i-")] == ["i-33", "i-0", "i-24"]
+
+    def test_voice_param_must_cover_tracks(self):
+        with pytest.raises(ValueError, match="does not cover"):
+            self.make_three_inst_bar().to_remiz_seq(voice=[0, 24])
+
+    def test_voice_param_rejects_duplicates(self):
+        with pytest.raises(ValueError, match="duplicate"):
+            self.make_three_inst_bar().to_remiz_seq(voice=[0, 0, 24, 33, 128])
+
+    def test_get_phrases_follows_voice(self):
+        bar = self.make_three_inst_bar()
+        assert [p.split()[0] for p in bar.get_phrases()] == ["i-24", "i-0", "i-33", "i-128"]
+        assert [p.split()[0] for p in bar.get_phrases(voice=[128, 33, 0, 24])] == ["i-128", "i-33", "i-0", "i-24"]
+
+    def test_roundtrip_keeps_voice(self):
+        bar = self.make_three_inst_bar()
+        assert Bar.from_remiz_str(bar.to_remiz_str()).voice == [24, 0, 33]
+
+
+# ============================================================
+# check_inst_id
+# ============================================================
+
+class TestCheckInstId:
+
+    def test_valid(self):
+        assert check_inst_id(0) == 0
+        assert check_inst_id(128) == 128
+        assert check_inst_id(np.int32(7)) == 7
+
+    def test_invalid(self):
+        with pytest.raises(ValueError):
+            check_inst_id(-1)
+        with pytest.raises(TypeError):
+            check_inst_id(1.0)
+
 
 # ============================================================
 # from_tracks
@@ -101,6 +204,21 @@ class TestBarFromTracks:
         t = make_track()
         bar = Bar.from_tracks(bar_id=0, track_list=[t], time_signature=(3, 4))
         assert bar.time_signature == (3, 4)
+
+    def test_same_inst_tracks_merged(self):
+        t1 = make_track(inst_id=0, pitches=[60])
+        t2 = make_track(inst_id=0, pitches=[72, 74])
+        bar = Bar.from_tracks(bar_id=0, track_list=[t1, t2])
+        assert list(bar.tracks) == [0]
+        assert len(bar.tracks[0]) == 3
+        assert len(t1) == 1 and len(t2) == 2  # inputs untouched
+
+    def test_input_list_not_reordered(self):
+        low, high = make_track(inst_id=0, pitches=[40]), make_track(inst_id=24, pitches=[80])
+        track_list = [low, high]
+        bar = Bar.from_tracks(bar_id=0, track_list=track_list)
+        assert track_list == [low, high]
+        assert bar.voice == [24, 0]
 
     def test_tempo_stored(self):
         t = make_track()
@@ -253,6 +371,75 @@ class TestBarFilterAndChange:
         bar = Bar(id=0, notes_of_insts={0: {0: [(60, 12, 64)]}})
         bar.change_instrument(old_inst_id=99, new_inst_id=24)  # should not raise
         assert 0 in bar.tracks
+
+    def test_filter_tracks_keeps_voice_order(self):
+        bar = Bar(id=0, notes_of_insts={0: {0: [(60, 12, 64)]}, 24: {0: [(72, 12, 64)]}, 33: {0: [(40, 12, 64)]}})
+        bar.filter_tracks([33, 24])
+        assert bar.voice == [24, 33]
+        assert list(bar.tracks) == [24, 33]
+
+    def test_change_instrument_keeps_voice_position(self):
+        bar = Bar(id=0, notes_of_insts={0: {0: [(60, 12, 64)]}, 24: {0: [(72, 12, 64)]}, 33: {0: [(40, 12, 64)]}})
+        bar.change_instrument(old_inst_id=24, new_inst_id=40)
+        assert bar.voice == [40, 0, 33]
+        assert list(bar.tracks) == [40, 0, 33]
+        assert bar.tracks[40].inst_id == 40
+
+    def test_change_instrument_merges_into_existing(self):
+        bar = Bar(id=0, notes_of_insts={0: {0: [(72, 12, 64)]}, 1: {0: [(48, 12, 64)]}})
+        bar.change_instrument(old_inst_id=1, new_inst_id=0)
+        assert bar.voice == [0]
+        assert sorted(n.pitch for n in bar.tracks[0].notes) == [48, 72]
+
+    def test_change_instrument_does_not_touch_other_tracks(self):
+        bar = Bar(id=0, notes_of_insts={0: {0: [(72, 12, 64)]}, 1: {0: [(60, 12, 64)]}, 2: {0: [(48, 12, 64)]}})
+        bar.change_instrument(old_inst_id=0, new_inst_id=5)
+        assert bar.voice == [5, 1, 2]
+        assert sum(len(t) for t in bar.tracks.values()) == 3
+
+    def test_change_instrument_invalid_new(self):
+        bar = Bar(id=0, notes_of_insts={0: {0: [(60, 12, 64)]}})
+        with pytest.raises(ValueError):
+            bar.change_instrument(old_inst_id=0, new_inst_id=300)
+
+    def test_has_drum(self):
+        assert Bar(id=0, notes_of_insts={128: {0: [(36, 12, 64)]}}).has_drum()
+        assert not Bar(id=0, notes_of_insts={0: {0: [(36, 12, 64)]}}).has_drum()
+
+    def test_get_unique_insts_voice_order(self):
+        bar = Bar(id=0, notes_of_insts={128: {0: [(36, 12, 64)]}, 0: {0: [(40, 12, 64)]}, 24: {0: [(72, 12, 64)]}})
+        assert bar.get_unique_insts() == [24, 0, 128]
+        assert bar.get_unique_insts(include_drum=False) == [24, 0]
+
+
+# ============================================================
+# piano roll
+# ============================================================
+
+class TestBarPianoRoll:
+
+    def test_shape_4_4(self):
+        assert make_bar().to_piano_roll().shape == (16, 128)
+
+    def test_shape_3_4(self):
+        assert make_bar(time_signature=(3, 4)).to_piano_roll().shape == (12, 128)
+
+    def test_shape_6_8(self):
+        bar = Bar(id=0, notes_of_insts={0: {33: [(60, 3, 64)]}}, time_signature=(6, 8))
+        pr = bar.to_piano_roll()
+        assert pr.shape == (12, 128)
+        assert pr[11, 60] == 1
+
+    def test_roundtrip(self):
+        bar = make_bar()
+        bar2 = Bar.from_piano_roll(bar.to_piano_roll())
+        assert bar2.to_remiz_str() == bar.to_remiz_str()
+
+    def test_from_plain_int_array(self):
+        pr = np.zeros((16, 128), dtype=np.int32)
+        pr[0, 60] = 4
+        bar = Bar.from_piano_roll(pr)
+        assert [(n.onset, n.pitch, n.duration) for n in bar.tracks[0].notes] == [(0, 60, 12)]
 
 
 # ============================================================

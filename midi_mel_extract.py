@@ -5,9 +5,12 @@ as a single track, in the input's own key. They differ in how they treat a note
 that starts while a melody note is still sounding.
 
 --quantized (MIDI with a meaningful tempo / time signature, e.g. POP909):
-  remi_z.MultiTrack.from_midi -> get_melody("hi_note_dur"): such a note is
-  dropped. Works bar by bar on the bar/beat grid, so a note held across a bar
-  line can still overlap the next bar's first melody note.
+  remi_z.MultiTrack.from_midi -> get_melody_of_song("hi_note_dur_plus"): such a
+  note is kept unless it is lower than a still-sounding melody note, with the
+  same rule as the default path but on the bar/beat grid with exact timing (no
+  onset_tol). Works on one timeline for the whole song, so a note held across a
+  bar line is still seen in the next bar. A melody note still sounding when the
+  next one starts is cut at that onset.
 
 default (performance MIDI: absolute timing, tempo / time signature meaningless):
   every non-drum track merged into one remi_z.NoteStream ->
@@ -24,7 +27,7 @@ default (performance MIDI: absolute timing, tempo / time signature meaningless):
   at 120 BPM.
 
 Needs the REMI-z checkout at midi-idiomizer/REMI-z (the `idiomizer` env), which
-has MultiTrack.get_melody returning a MultiTrack and NoteStream.get_melody.
+has MultiTrack.get_melody_of_song and NoteStream.get_melody.
 
 Usage:
   python utils/midi_mel_extract.py --midi take.mid                 # -> take_mel.mid next to it
@@ -39,7 +42,7 @@ from pathlib import Path
 from remi_z import MultiTrack
 from remi_z.note_abs import MultiStream, NoteStream
 
-MEL_DEF_QUANTIZED = "hi_note_dur"  # MultiTrack.get_melody
+MEL_DEF_QUANTIZED = "hi_note_dur_plus"  # MultiTrack.get_melody_of_song
 MEL_DEF_PERFORMANCE = "hi_note_dur_plus"  # NoteStream.get_melody
 MIDI_SUFFIXES = (".mid", ".midi")
 
@@ -47,9 +50,7 @@ MIDI_SUFFIXES = (".mid", ".midi")
 def extract_melody_quantized(midi_fp: Path, out_fp: Path, inst_id: int = 0) -> int:
     """Bar/beat-grid path. Writes the melody of midi_fp to out_fp; returns its note count (0 = nothing written)."""
     mt = MultiTrack.from_midi(str(midi_fp))
-    mel = mt.get_melody(MEL_DEF_QUANTIZED, inst_id=inst_id)
-    if not isinstance(mel, MultiTrack):
-        sys.exit("this remi_z's get_melody does not return a MultiTrack -- use the midi-idiomizer/REMI-z checkout")
+    mel = mt.get_melody_of_song(MEL_DEF_QUANTIZED, inst_id=inst_id, trim_overlap=True)
     n_notes = sum(len(track.notes) for bar in mel.bars for track in bar.tracks.values())
     if n_notes:
         out_fp.parent.mkdir(parents=True, exist_ok=True)

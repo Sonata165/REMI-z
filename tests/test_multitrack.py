@@ -373,6 +373,7 @@ class TestMultiTrackAdjustOffsetOverlap:
             make_bar(bar_id=1, notes_of_insts={0: {0: [(60, 12, 64)]}}, tempo=100.0),
         ])
         adj = mt.adjust_offset_overlap()
+        assert [b.voice for b in adj.bars] == [b.voice for b in mt.bars]
         assert [(b.bar_id, b.time_signature, b.tempo, list(b.tracks)) for b in adj.bars] == \
                [(b.bar_id, b.time_signature, b.tempo, list(b.tracks)) for b in mt.bars]
         assert adj.bars[0].tracks[0].notes[0].duration == 36
@@ -468,13 +469,41 @@ class TestFromMidiOffsetAdjustment:
         assert song_notes(MultiTrack.from_midi(fp)) == song_notes(
             MultiTrack.from_midi(fp, adjust_offset_overlap=False))
 
-    def test_multi_instance_tracks_not_adjusted_against_each_other(self, tmp_path):
+    def test_program_mapped_tracks_not_adjusted_against_each_other(self, tmp_path):
         fp = write_midi(str(tmp_path / "a.mid"), [
             (0, False, "piano 1", [(0, 48, 60, 64)]),
             (0, False, "piano 2", [(12, 24, 60, 64)]),
         ])
-        mt = MultiTrack.from_midi(fp, support_same_program_multi_instance=True)
+        mt = MultiTrack.from_midi(fp, program_map={"piano 2": 1})
         assert sorted(n[1:4] for n in song_notes(mt)) == [(0, 60, 48), (12, 60, 12)]
+        assert sorted(mt.bars[0].tracks) == [0, 1]
+
+    def test_same_program_tracks_merged(self, tmp_path):
+        fp = write_midi(str(tmp_path / "a.mid"), [
+            (0, False, "piano 1", [(0, 12, 60, 64)]),
+            (0, False, "piano 2", [(12, 24, 64, 64)]),
+        ])
+        mt = MultiTrack.from_midi(fp)
+        assert list(mt.bars[0].tracks) == [0]
+        assert len(mt.bars[0].tracks[0]) == 2
+
+    def test_program_map_by_track_index(self, tmp_path):
+        fp = write_midi(str(tmp_path / "a.mid"), [
+            (0, False, "piano", [(0, 12, 72, 64)]),
+            (0, False, "piano", [(0, 12, 48, 64)]),
+        ])
+        mt = MultiTrack.from_midi(fp, program_map={0: 13, "piano": 0})
+        assert mt.bars[0].voice == [13, 0]
+
+    def test_program_map_out_of_range(self, tmp_path):
+        fp = write_midi(str(tmp_path / "a.mid"), [(0, False, "piano", [(0, 12, 60, 64)])])
+        with pytest.raises(AssertionError):
+            MultiTrack.from_midi(fp, program_map={"piano": 200})
+
+    def test_multi_instance_flag_rejected(self, tmp_path):
+        fp = write_midi(str(tmp_path / "a.mid"), [(0, False, "piano", [(0, 12, 60, 64)])])
+        with pytest.raises(ValueError, match="program_map"):
+            MultiTrack.from_midi(fp, support_same_program_multi_instance=True)
 
     def test_round_trip(self, tmp_path):
         fp = write_midi(str(tmp_path / "a.mid"), [
@@ -521,6 +550,113 @@ class TestMultiTrackFilterAndChange:
         assert 0 not in mt.bars[0].tracks
 
 
+class TestMultiTrackVoice:
+
+    def make_crossing_mt(self):
+        # bar 0: piano (0) above strings (48); bar 1: strings above piano, with more notes
+        return MultiTrack(bars=[
+            make_bar(0, {0: {0: [(72, 12, 64)]}, 48: {0: [(60, 12, 64)]}}),
+            make_bar(1, {0: {0: [(50, 12, 64)]}, 48: {0: [(80, 12, 64)], 12: [(79, 12, 64)]}, 128: {0: [(36, 12, 64)]}}),
+        ])
+
+    def insts(self, seq):
+        return [t for t in seq if t.startswith("i-") or t == "b-1"]
+
+    def test_song_level_voice(self):
+        # piano avg (72+50)/2 = 61; strings avg (60+80+79)/3 = 73
+        assert self.make_crossing_mt().voice == [48, 0, 128]
+
+    def test_bar_voice_unchanged(self):
+        mt = self.make_crossing_mt()
+        assert [b.voice for b in mt.bars] == [[0, 48], [48, 0, 128]]
+
+    def test_empty(self):
+        assert MultiTrack(bars=[make_bar(0, {})]).voice == []
+
+    def test_serialization_uses_song_voice_in_every_bar(self):
+        seq = self.make_crossing_mt().to_remiz_seq()
+        assert self.insts(seq) == ["i-48", "i-0", "b-1", "i-48", "i-0", "b-1"]
+
+    def test_voice_param(self):
+        mt = self.make_crossing_mt()
+        seq = mt.to_remiz_seq(voice=[0, 48, 128])
+        assert self.insts(seq) == ["i-0", "i-48", "b-1", "i-0", "i-48", "b-1"]
+        assert mt.to_remiz_str(voice=[0, 48, 128]) == " ".join(seq)
+
+    def test_include_drum(self):
+        seq = self.make_crossing_mt().to_remiz_seq(include_drum=True)
+        assert self.insts(seq) == ["i-48", "i-0", "b-1", "i-48", "i-0", "i-128", "b-1"]
+
+    def test_roundtrip_stable(self):
+        mt = self.make_crossing_mt()
+        s = mt.to_remiz_str(with_velocity=True)
+        mt2 = MultiTrack.from_remiz_str(s)
+        assert mt2.voice == [48, 0]
+        assert mt2.to_remiz_str(with_velocity=True) == s
+
+    def test_slice_recomputes_voice(self):
+        mt = self.make_crossing_mt()
+        assert mt[0:1].voice == [0, 48]
+
+    def test_not_recomputed_after_edit(self):
+        mt = self.make_crossing_mt()
+        mt.shift_pitch(-40, track_id=48)
+        assert mt.voice == [48, 0, 128]
+        mt.update_voice()
+        assert mt.voice == [0, 48, 128]
+
+    def test_filter_and_remove_tracks(self):
+        mt = self.make_crossing_mt()
+        mt.filter_tracks([0, 48])
+        assert mt.voice == [48, 0]
+        mt.remove_tracks([48])
+        assert mt.voice == [0]
+
+    def test_change_instrument_keeps_place(self):
+        mt = self.make_crossing_mt()
+        mt.change_instrument(old_inst_id=48, new_inst_id=40)
+        assert mt.voice == [40, 0, 128]
+        assert self.insts(mt.to_remiz_seq()) == ["i-40", "i-0", "b-1", "i-40", "i-0", "b-1"]
+
+    def test_change_instrument_merges(self):
+        mt = self.make_crossing_mt()
+        mt.change_instrument(old_inst_id=48, new_inst_id=0)
+        assert mt.voice == [0, 128]
+        assert self.insts(mt.to_remiz_seq()) == ["i-0", "b-1", "i-0", "b-1"]
+
+    def test_get_inst_layout_follows_song_voice(self):
+        assert self.make_crossing_mt().get_inst_layout() == [["i-48", "i-0", "b-1"], ["i-48", "i-0", "i-128", "b-1"]]
+
+    def test_bar_with_unlisted_instrument_raises(self):
+        mt = self.make_crossing_mt()
+        mt.bars[0].change_instrument(old_inst_id=0, new_inst_id=1)  # bypasses mt.voice
+        with pytest.raises(ValueError, match="does not cover"):
+            mt.to_remiz_seq()
+
+
+class TestMultiTrackMergeWith:
+
+    def test_merges_into_existing_program(self):
+        a = MultiTrack(bars=[make_bar(notes_of_insts={0: {24: [(60, 12, 64)]}})])
+        b = MultiTrack(bars=[make_bar(notes_of_insts={1: {0: [(72, 12, 64)]}, 2: {12: [(48, 12, 64)]}})])
+        m = a.merge_with(b, other_prog_id=0)
+        assert list(m.bars[0].tracks) == [0]
+        assert m.bars[0].tracks[0].to_remiz_seq() == ["i-0", "o-0", "p-72", "d-12", "o-12", "p-48", "d-12", "o-24", "p-60", "d-12"]
+
+    def test_inputs_not_modified(self):
+        a = MultiTrack(bars=[make_bar(notes_of_insts={0: {24: [(60, 12, 64)]}})])
+        b = MultiTrack(bars=[make_bar(notes_of_insts={1: {0: [(72, 12, 64)]}})])
+        before_a, before_b = a.to_remiz_str(), b.to_remiz_str()
+        a.merge_with(b, other_prog_id=0)
+        assert (a.to_remiz_str(), b.to_remiz_str()) == (before_a, before_b)
+
+    def test_new_program_gets_voice(self):
+        a = MultiTrack(bars=[make_bar(notes_of_insts={0: {0: [(48, 12, 64)]}})])
+        b = MultiTrack(bars=[make_bar(notes_of_insts={0: {0: [(72, 12, 64)]}})])
+        m = a.merge_with(b, other_prog_id=40)
+        assert m.bars[0].voice == [40, 0]
+
+
 # ============================================================
 # permute_phrase
 # ============================================================
@@ -563,97 +699,6 @@ class TestMultiTrackGetContentSeq:
 
 
 # ============================================================
-# get_melody
-# ============================================================
-
-class TestMultiTrackGetMelody:
-
-    def make_two_inst_mt(self):
-        # bar 0: piano chord low, strings high; bar 1: empty; bar 2: drums only
-        bars = [
-            make_bar(bar_id=0, notes_of_insts={
-                0: {0: [(48, 12, 64), (52, 12, 64)], 24: [(50, 12, 64)]},
-                48: {0: [(72, 24, 80)], 24: [(74, 12, 80)]},
-            }),
-            make_bar(bar_id=1, notes_of_insts={}),
-            make_bar(bar_id=2, notes_of_insts={128: {0: [(36, 6, 100)]}}, time_signature=(3, 4), tempo=90.0),
-        ]
-        return MultiTrack(bars=bars)
-
-    def test_returns_multitrack_same_bar_count(self):
-        mt = self.make_two_inst_mt()
-        mel = mt.get_melody("hi_note")
-        assert isinstance(mel, MultiTrack)
-        assert len(mel) == len(mt)
-
-    def test_single_track_per_bar(self):
-        mel = self.make_two_inst_mt().get_melody("hi_track")
-        assert list(mel.bars[0].tracks.keys()) == [0]
-
-    def test_inst_id_param(self):
-        mel = self.make_two_inst_mt().get_melody("hi_note", inst_id=73)
-        assert list(mel.bars[0].tracks.keys()) == [73]
-        assert mel.bars[0].tracks[73].inst_id == 73
-
-    def test_hi_track_notes(self):
-        mel = self.make_two_inst_mt().get_melody("hi_track")
-        pitches = [n.pitch for n in mel.bars[0].tracks[0].notes]
-        assert sorted(pitches) == [72, 74]
-
-    def test_hi_note_notes(self):
-        mel = self.make_two_inst_mt().get_melody("hi_note")
-        notes = mel.bars[0].tracks[0].notes
-        assert [(n.onset, n.pitch) for n in notes] == [(0, 72), (24, 74)]
-
-    def test_matches_bar_get_melody(self):
-        mt = self.make_two_inst_mt()
-        for mel_def in ["hi_track", "hi_note", "hi_note_dur"]:
-            mel = mt.get_melody(mel_def)
-            expected = [(n.onset, n.pitch, n.duration, n.velocity) for n in mt.bars[0].get_melody(mel_def)]
-            got = [(n.onset, n.pitch, n.duration, n.velocity) for n in mel.bars[0].tracks[0].notes]
-            assert sorted(got) == sorted(expected), mel_def
-
-    def test_chord_notes_kept(self):
-        # hi_track on a single chordal track: several notes share an onset and must all survive
-        mt = MultiTrack(bars=[make_bar(notes_of_insts={0: {0: [(48, 12, 64), (52, 12, 64), (55, 12, 64)]}})])
-        mel = mt.get_melody("hi_track")
-        assert sorted(n.pitch for n in mel.bars[0].tracks[0].notes) == [48, 52, 55]
-
-    def test_empty_and_drum_only_bars_have_no_track(self):
-        mel = self.make_two_inst_mt().get_melody("hi_track")
-        assert mel.bars[1].tracks == {}
-        assert mel.bars[2].tracks == {}
-
-    def test_bar_metadata_kept(self):
-        mt = self.make_two_inst_mt()
-        mel = mt.get_melody("hi_note")
-        for src, out in zip(mt.bars, mel.bars):
-            assert (out.bar_id, out.time_signature, out.tempo) == (src.bar_id, src.time_signature, src.tempo)
-
-    def test_source_not_modified(self):
-        mt = self.make_two_inst_mt()
-        before = mt.to_remiz_str()
-        mel = mt.get_melody("hi_note")
-        mel.shift_pitch(12)
-        assert mt.to_remiz_str() == before
-
-    def test_bad_inst_id(self):
-        with pytest.raises(AssertionError):
-            self.make_two_inst_mt().get_melody("hi_note", inst_id=128)
-
-    def test_after_key_norm(self):
-        # key_norm used to leave numpy ints in Note.pitch, which Note() rejects when get_melody rebuilds notes
-        bars = [make_bar(bar_id=i, notes_of_insts={0: {0: [(62, 12, 64)], 12: [(66, 12, 64)], 24: [(69, 12, 64)]}})
-                for i in range(4)]  # D major arpeggio -> shifted to C
-        mt = MultiTrack(bars=bars)
-        shift = mt.key_norm()
-        assert type(shift) is int
-        assert all(type(n.pitch) is int for b in mt.bars for t in b.tracks.values() for n in t.notes)
-        mel = mt.get_melody("hi_note_dur")
-        assert len(mel) == 4
-
-
-# ============================================================
 # get_melody_of_song
 # ============================================================
 
@@ -664,6 +709,17 @@ def mel_notes(mt):
 
 class TestMultiTrackGetMelodyOfSong:
 
+    def test_after_key_norm(self):
+        # key_norm used to leave numpy ints in Note.pitch, which Note() rejects when melody extraction rebuilds notes
+        bars = [make_bar(bar_id=i, notes_of_insts={0: {0: [(62, 12, 64)], 12: [(66, 12, 64)], 24: [(69, 12, 64)]}})
+                for i in range(4)]  # D major arpeggio -> shifted to C
+        mt = MultiTrack(bars=bars)
+        shift = mt.key_norm()
+        assert type(shift) is int
+        assert all(type(n.pitch) is int for b in mt.bars for t in b.tracks.values() for n in t.notes)
+        mel = mt.get_melody_of_song()
+        assert len(mel) == 4
+
     def test_note_held_across_bar_line_blocks_lower_notes(self):
         # the bug case: bar 0's 60 starts at 36 and lasts 36 -> ends at bar 1 pos 24.
         # bar 1's 52 (0-12) and 43 (12-18) lie inside it and are lower -> not melody; 64 at 30 is after it.
@@ -672,8 +728,6 @@ class TestMultiTrackGetMelodyOfSong:
             make_bar(1, {0: {0: [(52, 12, 64)], 12: [(43, 6, 64)], 30: [(64, 12, 64)]}}),
         ])
         assert mel_notes(mt.get_melody_of_song("hi_note_dur_plus")) == [(0, 36, 60, 36), (1, 30, 64, 12)]
-        # bar-by-bar get_melody can't see the held note -- this is what the song-level version fixes
-        assert (1, 0, 52, 12) in mel_notes(mt.get_melody("hi_note_dur"))
 
     def test_default_policy(self):
         mt = MultiTrack(bars=[make_bar(0, {0: {0: [(60, 96, 64)]}}), make_bar(1, {0: {12: [(55, 12, 64)]}})])
