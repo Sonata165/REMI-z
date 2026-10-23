@@ -341,6 +341,10 @@ class NoteStream:
             )
         for note in self.notes:
             note.pitch += semitones
+            if note.pitch < 0:
+                note.pitch += 12
+            while note.pitch > 127:
+                note.pitch -= 12
         return self
 
     def get_onset_list(self) -> List[float]:

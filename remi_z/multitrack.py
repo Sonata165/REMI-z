@@ -154,9 +154,11 @@ class MultiTrack:
                     for note in track.notes:
                         note.pitch += pitch_shift
 
-                        # If the pitch is out of range, adjust it
-                        if note.pitch < 0:
+                        # If the pitch is out of range (MIDI 0-127), move it by octaves until it is in range
+                        while note.pitch < 0:
                             note.pitch += 12
+                        while note.pitch > 127:
+                            note.pitch -= 12
 
         return pitch_shift
 
@@ -164,7 +166,8 @@ class MultiTrack:
         """
         Transpose all non-drum notes by a fixed number of semitones.
 
-        Pitches that drop below 0 are wrapped up by one octave (+12).
+        Pitches that leave the MIDI range 0-127 are moved back into it by whole
+        octaves (+12 while below 0, -12 while above 127).
         Drum tracks are always skipped.
 
         Parameters
@@ -185,9 +188,11 @@ class MultiTrack:
                     for note in track.notes:
                         note.pitch += pitch_shift
 
-                        # If the pitch is out of range, adjust it
-                        if note.pitch < 0:
+                        # If the pitch is out of range (MIDI 0-127), move it by octaves until it is in range
+                        while note.pitch < 0:
                             note.pitch += 12
+                        while note.pitch > 127:
+                            note.pitch -= 12
 
     def quantize_to_16th(self):
         """
