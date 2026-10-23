@@ -643,25 +643,21 @@ class MultiStream:
         """Program id of each track, in track order (128 = drums)."""
         return [st.inst_id for st in self.streams]
 
-    def flatten(
-        self, include_drum: bool = False, adjust_offset_overlap: bool = True
-    ) -> NoteStream:
+    def flatten(self, include_drum: bool = False) -> NoteStream:
         """Collapse all tracks into a single program-0 NoteStream.
 
         Instrument information is dropped.  Notes sharing the same (onset, pitch)
         across tracks are deduplicated, keeping the one with the longest duration.
+        Then offsets are shortened so that no note overlaps a later note of the
+        same pitch (see :func:`_adjust_offset_overlap`).  This guarantees the
+        resulting NoteStream can be written to MIDI and read back unchanged;
+        merging tracks routinely produces same-pitch overlaps that MIDI cannot
+        represent faithfully.
 
         Parameters
         ----------
         include_drum : bool
             If False (default), drum tracks (inst_id == 128) are excluded.
-        adjust_offset_overlap : bool
-            If True (default), after dedup shorten offsets so that no note
-            overlaps a later note of the same pitch (see
-            :func:`_adjust_offset_overlap`).  This guarantees the resulting
-            NoteStream can be written to MIDI and read back unchanged; merging
-            tracks routinely produces same-pitch overlaps that MIDI cannot
-            represent faithfully.
         """
         notes = [
             note
@@ -670,8 +666,7 @@ class MultiStream:
             for note in st.notes
         ]
         notes = _dedup_by_onset_pitch(notes)
-        if adjust_offset_overlap:
-            notes = _adjust_offset_overlap(notes)
+        notes = _adjust_offset_overlap(notes)
         notes.sort()
         return NoteStream(notes, inst_id=0)
 
