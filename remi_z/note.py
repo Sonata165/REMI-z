@@ -1,5 +1,6 @@
+import bisect
 import re
-from typing import List
+from typing import Iterable, Iterator, List, Optional
 
 
 def midi_pitch_to_note_name(pitch: int) -> str:
@@ -107,35 +108,124 @@ class Note:
 
 class NoteSeq:
     """
-    A sequence of Note objects
+    A sequence of Note objects, always kept sorted.
     Can be used to represent the notes of a single instrument within a bar.
 
-    This is a wrapper around a list of Note objects, intended to be extended with
-    higher-level music operations (e.g., transposition, quantization, pattern matching).
+    Notes are ordered by ``Note.__lt__``: onset (ascending), then pitch (descending),
+    then duration (descending), then velocity (descending). The order is restored on
+    construction, on every insertion, and after every editing method of this class.
 
-    Notes are not guaranteed to be sorted on construction; call sorted() or .notes.sort()
-    if order matters.
+    Editing a Note's fields directly (e.g. ``note.onset = 3``) bypasses this and may
+    leave the sequence unsorted; use ``transpose``, ``quantize`` and ``set_velocity``
+    instead.
     """
 
-    def __init__(self, note_list: List[Note]):
-        self.notes = note_list
+    def __init__(self, note_list: Optional[Iterable[Note]] = None):
+        """
+        Create a NoteSeq from any iterable of Note objects.
+
+        The input is copied and sorted; the input itself is not modified. The Note
+        objects are shared, not copied.
+        """
+        self._notes: List[Note] = sorted(note_list) if note_list is not None else []
+
+    @property
+    def notes(self) -> List[Note]:
+        """
+        A sorted copy of the notes. Changing this list does not change the NoteSeq.
+        """
+        return list(self._notes)
 
     def __str__(self):
         return (
-            "NoteSeq: [" + " ".join([note.get_note_name() for note in self.notes]) + "]"
+            "NoteSeq: [" + " ".join([note.get_note_name() for note in self._notes]) + "]"
         )
 
     def __repr__(self):
         return self.__str__()
 
+    def __len__(self):
+        return len(self._notes)
+
+    def __iter__(self) -> Iterator[Note]:
+        return iter(self._notes)
+
     def __getitem__(self, idx):
         if isinstance(idx, int):
-            return self.notes[idx]
+            return self._notes[idx]
         elif isinstance(idx, slice):
-            return NoteSeq(self.notes[idx])
+            return NoteSeq(self._notes[idx])
+        raise TypeError(f"NoteSeq indices must be int or slice, not {type(idx).__name__}")
+
+    def add(self, note: Note):
+        """
+        Insert one note at its sorted position.
+        """
+        assert isinstance(note, Note), "note must be a Note object"
+        bisect.insort(self._notes, note)
+
+    def extend(self, notes: Iterable[Note]):
+        """
+        Insert several notes and restore the sorted order.
+        """
+        notes = list(notes)
+        assert all(isinstance(note, Note) for note in notes), "notes must be Note objects"
+        self._notes.extend(notes)
+        self._notes.sort()
+
+    def transpose(self, semitones: int):
+        """
+        Transpose all notes in place by a number of semitones.
+
+        Pitches that leave the MIDI range 0-127 are moved back into it by whole
+        octaves (+12 while below 0, -12 while above 127).
+        """
+        for note in self._notes:
+            note.pitch += semitones
+            while note.pitch < 0:
+                note.pitch += 12
+            while note.pitch > 127:
+                note.pitch -= 12
+        self._notes.sort()
+
+    def quantize(self, step: int):
+        """
+        Quantize onsets and durations in place to multiples of ``step`` positions.
+
+        Onsets are rounded to the nearest multiple; durations are rounded likewise
+        but never below one ``step``.
+        """
+        for note in self._notes:
+            note.onset = round(note.onset / step) * step
+            note.duration = max(1, round(note.duration / step)) * step
+        self._notes.sort()
+
+    def set_velocity(self, velocity: int):
+        """
+        Set the velocity of all notes in place.
+        """
+        assert isinstance(velocity, int), "velocity must be an integer"
+        assert 0 <= velocity <= 127, "velocity must be in the range of [0, 127]"
+        for note in self._notes:
+            note.velocity = velocity
+        self._notes.sort()
+
+    def get_avg_pitch(self) -> float:
+        """
+        Return the mean MIDI pitch of all notes, or 0 if the sequence is empty.
+        """
+        if len(self._notes) == 0:
+            return 0
+        return sum(note.pitch for note in self._notes) / len(self._notes)
+
+    def get_onsets(self) -> List[int]:
+        """
+        Return the sorted list of distinct onset positions.
+        """
+        return sorted(set(note.onset for note in self._notes))
 
     def get_note_name_list(self):
-        ret = [note.get_note_name() for note in self.notes]
+        ret = [note.get_note_name() for note in self._notes]
         return ret
 
     def get_pitch_range(self):
@@ -145,12 +235,10 @@ class NoteSeq:
 
         When there are no notes in the NoteSeq, return None.
         """
-        if len(self.notes) == 0:
+        if len(self._notes) == 0:
             return None
-        if len(self.notes) == 1:
-            return (self.notes[0].pitch, self.notes[0].pitch)
 
-        pitch = [note.pitch for note in self.notes]
+        pitch = [note.pitch for note in self._notes]
         l_pitch = min(pitch)
         h_pitch = max(pitch)
         return (l_pitch, h_pitch)

@@ -93,7 +93,7 @@ class TestNoteStreamGetMelody:
     def test_plus_same_pitch_overlap_is_new_melody_note(self):
         # same pitch re-attacked while the first is still sounding -> counted as a new melody note
         s = NoteStream([n(0.0, 1.0, 64), n(0.5, 0.2, 64)])
-        assert mel_tuples(s.get_melody("hi_note_dur_plus")) == [(0.0, 1.0, 64), (0.5, 0.2, 64)]
+        assert mel_tuples(s.get_melody("hi_note_dur_plus", trim_overlap=False)) == [(0.0, 1.0, 64), (0.5, 0.2, 64)]
         # ...but still dropped by plain hi_note_dur
         assert [x.pitch for x in s.get_melody("hi_note_dur").notes] == [64]
 
@@ -122,13 +122,14 @@ class TestNoteStreamGetMelody:
 
     def test_plus_does_not_trim_durations(self):
         s = NoteStream([n(0.0, 2.0, 60), n(0.5, 0.5, 67)])
-        assert mel_tuples(s.get_melody("hi_note_dur_plus")) == [(0.0, 2.0, 60), (0.5, 0.5, 67)]
+        assert mel_tuples(s.get_melody("hi_note_dur_plus", trim_overlap=False)) == [(0.0, 2.0, 60), (0.5, 0.5, 67)]
 
     # ---- trim_overlap ----
 
-    def test_trim_overlap_default_off(self):
+    def test_trim_overlap_default_on(self):
         s = NoteStream([n(0.0, 0.52, 64), n(0.5, 0.5, 62)])  # legato overlap within tol
-        assert mel_tuples(s.get_melody()) == [(0.0, 0.52, 64), (0.5, 0.5, 62)]
+        assert mel_tuples(s.get_melody()) == [(0.0, 0.5, 64), (0.5, 0.5, 62)]
+        assert mel_tuples(s.get_melody(trim_overlap=False)) == [(0.0, 0.52, 64), (0.5, 0.5, 62)]
 
     def test_trim_overlap_cuts_offset_to_next_onset(self):
         s = NoteStream([n(0.0, 0.52, 64), n(0.5, 0.5, 62)])

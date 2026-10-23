@@ -1,6 +1,6 @@
-from typing import List, Dict, Tuple
+from typing import Dict, Iterable, List, Tuple
 
-from .note import Note
+from .note import Note, NoteSeq
 
 
 class Track:
@@ -18,18 +18,20 @@ class Track:
         Optional secondary identifier used when multiple tracks share the
         same program ID (e.g., two piano parts).
     is_drum : bool
-        True when inst_id == 128.
-    notes : List[Note]
-        All notes in this track, sorted by onset (ascending), then pitch
+        True when inst_id == 128. Read-only; derived from inst_id.
+    notes : NoteSeq
+        All notes in this track, always sorted by onset (ascending), then pitch
         (descending), then duration (descending), then velocity (descending).
+        Assigning a list or NoteSeq replaces the notes with a sorted copy.
     non_empty_pos : List[int]
         Sorted list of onset positions at which at least one note starts.
+        Read-only; derived from notes.
     avg_pitch : float
         Mean MIDI pitch across all notes. 0 if the track is empty; -1 if
-        the track is a drum track.
+        the track is a drum track. Read-only; derived from notes.
     """
 
-    def __init__(self, inst_id, notes: Dict[int, List[Note]], track_id=None):
+    def __init__(self, inst_id: int, notes: Dict[int, List[Tuple[int, int, int]]], track_id=None):
         """
         Create a Track from a position-indexed note dictionary.
 
@@ -37,7 +39,7 @@ class Track:
         ----------
         inst_id : int
             General MIDI program number (0–127), or 128 for drums.
-        notes : Dict[int, List[Note]]
+        notes : Dict[int, List[Tuple[int, int, int]]]
             Mapping from onset position to a list of raw note tuples
             (pitch, duration, velocity) at that position.
         track_id : int or None
@@ -46,40 +48,19 @@ class Track:
         """
         self.inst_id = inst_id
         self.track_id = track_id
-        self.non_empty_pos = list(notes.keys())
-        self.non_empty_pos.sort()
-
-        if inst_id == 128:
-            self.is_drum = True
-        else:
-            self.is_drum = False
-
-        self.notes = []
-        for pos, notes_of_pos in notes.items():
-            for note in notes_of_pos:
-                pitch, duration, velocity = note
-                note_instance = Note(
-                    onset=pos, duration=duration, pitch=pitch, velocity=velocity
-                )
-                self.notes.append(note_instance)
-        self.notes.sort()
-
-        # Calculate the average pitch
-        if self.is_drum:
-            self.avg_pitch = -1
-        else:
-            pitches = [note.pitch for note in self.notes]
-            if len(pitches) == 0:
-                self.avg_pitch = 0
-            else:
-                self.avg_pitch = sum(pitches) / len(pitches)
+        self.notes = [
+            Note(onset=pos, duration=duration, pitch=pitch, velocity=velocity)
+            for pos, notes_of_pos in notes.items()
+            for pitch, duration, velocity in notes_of_pos
+        ]
 
     @classmethod
-    def from_note_list(cls, inst_id: int, note_list: List[Note]):
+    def from_note_list(cls, inst_id: int, note_list: List[Note], track_id=None):
         """
         Create a Track from a list of Note objects.
 
-        The input list is copied and will not be modified.
+        The input list is copied and will not be modified. The Note objects
+        themselves are shared with the input, not copied.
 
         Parameters
         ----------
@@ -87,27 +68,37 @@ class Track:
             General MIDI program number (0–127), or 128 for drums.
         note_list : List[Note]
             Notes to include in this track.
+        track_id : int or None
+            Optional secondary identifier for disambiguation when multiple
+            tracks share the same inst_id.
         """
         assert isinstance(note_list, list), "note_list must be a list"
 
-        ret = cls(inst_id=inst_id, notes={})
-        ret.notes = list(note_list)
-        ret.notes.sort()
-        ret.inst_id = inst_id
-        ret.non_empty_pos = list(set([note.onset for note in note_list]))
-        ret.non_empty_pos.sort()
-
-        # Calculate the average pitch
-        if ret.is_drum:
-            ret.avg_pitch = -1
-        else:
-            pitches = [note.pitch for note in ret.notes]
-            if len(pitches) == 0:
-                ret.avg_pitch = 0
-            else:
-                ret.avg_pitch = sum(pitches) / len(pitches)
-
+        ret = cls(inst_id=inst_id, notes={}, track_id=track_id)
+        ret.notes = note_list
         return ret
+
+    @property
+    def notes(self) -> NoteSeq:
+        return self._notes
+
+    @notes.setter
+    def notes(self, notes: Iterable[Note]):
+        self._notes = NoteSeq(notes)
+
+    @property
+    def is_drum(self) -> bool:
+        return self.inst_id == 128
+
+    @property
+    def avg_pitch(self) -> float:
+        if self.is_drum:
+            return -1
+        return self._notes.get_avg_pitch()
+
+    @property
+    def non_empty_pos(self) -> List[int]:
+        return self._notes.get_onsets()
 
     def __str__(self) -> str:
         return f"Inst {self.inst_id}: {len(self.notes)} notes, avg_pitch={self.avg_pitch:.02f}"
@@ -126,13 +117,9 @@ class Track:
 
     def set_inst_id(self, inst_id: int):
         """
-        Change the instrument ID and update is_drum accordingly.
+        Change the instrument ID. is_drum and avg_pitch follow automatically.
         """
         self.inst_id = inst_id
-        if inst_id == 128:
-            self.is_drum = True
-        else:
-            self.is_drum = False
 
     def get_note_list(self) -> List[Tuple[int, int, int, int]]:
         """
@@ -155,9 +142,12 @@ class Track:
 
     def get_all_notes(self) -> List[Note]:
         """
-        Return the list of Note objects in this track, sorted by onset.
+        Return the Note objects in this track as a new list, sorted by onset.
+
+        Changing the returned list does not change the track, but the Note
+        objects in it are shared with the track.
         """
-        return self.notes
+        return self._notes.notes
 
     def to_remiz_seq(self, with_velocity=False) -> List[str]:
         """
@@ -218,28 +208,13 @@ class Track:
         """
         Merge another Track into this one in place.
 
-        Notes from `other` are appended, the combined list is re-sorted, and
-        avg_pitch and non_empty_pos are updated. Both tracks must share the
-        same inst_id.
+        Notes from `other` are inserted in sorted order; avg_pitch and
+        non_empty_pos follow automatically. Both tracks must share the same
+        inst_id.
         """
         assert isinstance(other, Track), "other must be a Track object"
         assert (
             self.inst_id == other.inst_id
         ), "inst_id of the two tracks must be the same"
 
-        # Merge the notes
-        self.notes.extend(other.notes)
-        self.notes.sort()
-
-        # Update non_empty_pos
-        self.non_empty_pos = sorted(set(note.onset for note in self.notes))
-
-        # Update the average pitch
-        if self.is_drum:
-            self.avg_pitch = -1
-        else:
-            pitches = [note.pitch for note in self.notes]
-            if len(pitches) == 0:
-                self.avg_pitch = 0
-            else:
-                self.avg_pitch = sum(pitches) / len(pitches)
+        self._notes.extend(other.notes)

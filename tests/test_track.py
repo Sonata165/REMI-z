@@ -1,5 +1,5 @@
 import pytest
-from remi_z.note import Note
+from remi_z.note import Note, NoteSeq
 from remi_z.track import Track
 
 
@@ -98,12 +98,16 @@ class TestTrackFromNoteList:
 
     def test_empty_list(self):
         t = Track.from_note_list(inst_id=0, note_list=[])
-        assert t.notes == []
+        assert len(t.notes) == 0
         assert t.avg_pitch == 0
 
     def test_requires_list(self):
         with pytest.raises(AssertionError):
             Track.from_note_list(inst_id=0, note_list=(make_note(),))
+
+    def test_track_id(self):
+        t = Track.from_note_list(inst_id=0, note_list=[], track_id=3)
+        assert t.track_id == 3
 
 
 # ============================================================
@@ -278,3 +282,60 @@ class TestTrackMergeWith:
         t = Track(inst_id=0, notes={})
         with pytest.raises(AssertionError):
             t.merge_with("not a track")
+
+
+# ============================================================
+# Derived values stay consistent with the notes
+# ============================================================
+
+class TestTrackDerivedValues:
+
+    def test_notes_is_noteseq(self):
+        assert isinstance(make_track().notes, NoteSeq)
+
+    def test_assigning_notes_sorts(self):
+        t = make_track()
+        t.notes = [make_note(onset=24), make_note(onset=0)]
+        assert [n.onset for n in t.notes] == [0, 24]
+        assert t.non_empty_pos == [0, 24]
+
+    def test_avg_pitch_follows_transpose(self):
+        t = make_track(notes={0: [(60, 12, 64)]})
+        t.notes.transpose(12)
+        assert t.avg_pitch == pytest.approx(72.0)
+
+    def test_set_inst_id_to_drum_updates_avg_pitch(self):
+        t = make_track(inst_id=0, notes={0: [(36, 12, 64)]})
+        t.set_inst_id(128)
+        assert t.avg_pitch == -1
+
+    def test_set_inst_id_from_drum_updates_avg_pitch(self):
+        t = Track(inst_id=128, notes={0: [(36, 12, 64)]})
+        t.set_inst_id(0)
+        assert t.avg_pitch == pytest.approx(36.0)
+
+    def test_non_empty_pos_follows_quantize(self):
+        t = make_track(notes={1: [(60, 12, 64)], 13: [(62, 12, 64)]})
+        t.notes.quantize(3)
+        assert t.non_empty_pos == [0, 12]
+
+    def test_derived_values_are_read_only(self):
+        t = make_track()
+        for attr in ("is_drum", "avg_pitch", "non_empty_pos"):
+            with pytest.raises(AttributeError):
+                setattr(t, attr, 0)
+
+    def test_get_all_notes_is_a_copy(self):
+        t = make_track()
+        t.get_all_notes().clear()
+        assert len(t) == 2
+
+    def test_remiz_seq_after_quantize_reorders(self):
+        t = make_track(notes={1: [(60, 12, 64)], 2: [(72, 12, 64)]})
+        t.notes.quantize(6)
+        assert t.to_remiz_seq() == ["i-0", "o-0", "p-72", "d-12", "p-60", "d-12"]
+
+    def test_remiz_seq_after_extend(self):
+        t = make_track(notes={24: [(60, 12, 64)]})
+        t.notes.extend([make_note(onset=0, pitch=64)])
+        assert t.to_remiz_seq() == ["i-0", "o-0", "p-64", "d-12", "o-24", "p-60", "d-12"]

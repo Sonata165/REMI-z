@@ -119,8 +119,7 @@ class MultiTrack:
                 if track_id is not None and inst_id != track_id:
                     continue
                 else:
-                    for note in track.notes:
-                        note.velocity = velocity
+                    track.notes.set_velocity(velocity)
 
     def set_instrument(self, track_name:str, new_inst_id: int):
         '''
@@ -151,14 +150,7 @@ class MultiTrack:
                 if track.is_drum:
                     continue
                 else:
-                    for note in track.notes:
-                        note.pitch += pitch_shift
-
-                        # If the pitch is out of range (MIDI 0-127), move it by octaves until it is in range
-                        while note.pitch < 0:
-                            note.pitch += 12
-                        while note.pitch > 127:
-                            note.pitch -= 12
+                    track.notes.transpose(pitch_shift)
 
         return pitch_shift
 
@@ -185,14 +177,7 @@ class MultiTrack:
                 if track_id is not None and inst_id != track_id:
                     continue
                 else:
-                    for note in track.notes:
-                        note.pitch += pitch_shift
-
-                        # If the pitch is out of range (MIDI 0-127), move it by octaves until it is in range
-                        while note.pitch < 0:
-                            note.pitch += 12
-                        while note.pitch > 127:
-                            note.pitch -= 12
+                    track.notes.transpose(pitch_shift)
 
     def quantize_to_16th(self):
         """
@@ -201,12 +186,7 @@ class MultiTrack:
         """
         for bar in self.bars:
             for inst_id, track in bar.tracks.items():
-                for note in track.notes:
-                    note.onset = round(note.onset / 3) * 3
-                    note.duration = max(1, round(note.duration / 3)) * 3
-
-                    if note.duration > 20:
-                        a = 3
+                track.notes.quantize(3)
 
     def detect_key(self):
         """
@@ -912,8 +892,9 @@ class MultiTrack:
                     ]
                 else:
                     notes = adjusted.get(i, {}).get(tid, [])
-                new_track = Track.from_note_list(inst_id=track.inst_id, note_list=notes)
-                new_track.track_id = track.track_id
+                new_track = Track.from_note_list(
+                    inst_id=track.inst_id, note_list=notes, track_id=track.track_id
+                )
                 new_bar.tracks[tid] = new_track
             new_bars.append(new_bar)
 

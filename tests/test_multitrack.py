@@ -681,11 +681,11 @@ class TestMultiTrackGetMelodyOfSong:
 
     def test_higher_note_over_held_note_kept(self):
         mt = MultiTrack(bars=[make_bar(0, {0: {0: [(60, 96, 64)]}}), make_bar(1, {0: {12: [(67, 12, 64)]}})])
-        assert mel_notes(mt.get_melody_of_song()) == [(0, 0, 60, 96), (1, 12, 67, 12)]
+        assert mel_notes(mt.get_melody_of_song(trim_overlap=False)) == [(0, 0, 60, 96), (1, 12, 67, 12)]
 
     def test_same_pitch_reattack_kept(self):
         mt = MultiTrack(bars=[make_bar(0, {0: {0: [(64, 60, 64)]}}), make_bar(1, {0: {6: [(64, 12, 64)]}})])
-        assert mel_notes(mt.get_melody_of_song()) == [(0, 0, 64, 60), (1, 6, 64, 12)]
+        assert mel_notes(mt.get_melody_of_song(trim_overlap=False)) == [(0, 0, 64, 60), (1, 6, 64, 12)]
 
     def test_exact_comparison_no_tolerance(self):
         # a note starting exactly where the held note ends is not overlapping; one position earlier is
@@ -710,7 +710,8 @@ class TestMultiTrackGetMelodyOfSong:
         mt = MultiTrack(bars=[make_bar(0, {0: {0: [(60, 96, 64)]}}), make_bar(1, {0: {12: [(67, 12, 64)]}})])
         # 60 is cut at song position 48 + 12 = 60
         assert mel_notes(mt.get_melody_of_song(trim_overlap=True)) == [(0, 0, 60, 60), (1, 12, 67, 12)]
-        assert mel_notes(mt.get_melody_of_song()) == [(0, 0, 60, 96), (1, 12, 67, 12)]  # default: untrimmed
+        assert mel_notes(mt.get_melody_of_song(trim_overlap=False)) == [(0, 0, 60, 96), (1, 12, 67, 12)]
+        assert mel_notes(mt.get_melody_of_song()) == [(0, 0, 60, 60), (1, 12, 67, 12)]  # default: trimmed
 
     def test_trim_overlap_leaves_no_overlap(self):
         import random
@@ -729,7 +730,7 @@ class TestMultiTrackGetMelodyOfSong:
 
     def test_hi_track_returns_multitrack_with_chords(self):
         mt = MultiTrack(bars=[make_bar(0, {0: {0: [(48, 12, 64)]}, 48: {0: [(72, 24, 64), (76, 24, 64)], 12: [(74, 12, 64)]}})])
-        mel = mt.get_melody_of_song("hi_track")
+        mel = mt.get_melody_of_song("hi_track", trim_overlap=False)
         assert isinstance(mel, MultiTrack)
         assert mel_notes(mel) == [(0, 0, 72, 24), (0, 0, 76, 24), (0, 12, 74, 12)]
         # trimming cuts the chord at the next onset but never to zero length
