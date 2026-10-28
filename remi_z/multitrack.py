@@ -1,4 +1,5 @@
 import bisect
+import functools
 import os
 
 import miditoolkit
@@ -20,6 +21,12 @@ from .midi_encoding import (
 )
 from .time_signature_utils import TimeSignatureUtil
 from .keys_normalization import detect_key
+
+
+@functools.lru_cache(maxsize=None)
+def _time_signature_dict() -> dict:
+    """dict_time_signature.yaml, read once per process (parsing it took ~18 ms per MultiTrack)."""
+    return read_yaml(os.path.join(os.path.dirname(__file__), "dict_time_signature.yaml"))
 
 
 class MultiTrack:
@@ -64,9 +71,8 @@ class MultiTrack:
         self.update_ts_and_tempo()
         self.update_voice()
 
-        # Load the time signature dictionary
-        ts_fp = os.path.join(os.path.dirname(__file__), "dict_time_signature.yaml")
-        self.ts_dict = read_yaml(ts_fp)
+        # The time signature dictionary, shared by all MultiTrack objects (read-only)
+        self.ts_dict = _time_signature_dict()
 
         self.fn = '<unknown>'
 
