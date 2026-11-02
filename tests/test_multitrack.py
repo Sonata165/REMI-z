@@ -205,6 +205,21 @@ class TestMultiTrackRemizRoundtrip:
         mt = MultiTrack.from_remiz_str("i-0 o-0 p-60 d-12", verbose=False)
         assert len(mt) == 1
 
+    def test_from_remiz_str_default_instrument(self):
+        mt = MultiTrack.from_remiz_str("o-0 p-60 d-12 b-1", verbose=False)
+        assert list(mt.bars[0].tracks) == [0]
+
+    def test_from_remiz_str_default_instrument_drums(self):
+        mt = MultiTrack.from_remiz_str("o-0 p-164 d-1 p-170 d-1 o-12 p-60 d-6 b-1", verbose=False)
+        tracks = mt.bars[0].tracks
+        assert sorted(tracks) == [0, 128]
+        assert sorted(n.pitch for n in tracks[128].notes) == [36, 42]
+        assert [n.pitch for n in tracks[0].notes] == [60]
+
+    def test_from_remiz_str_explicit_instrument_kept_for_drum_pitches(self):
+        mt = MultiTrack.from_remiz_str("i-0 o-0 p-164 d-1 b-1", verbose=False)
+        assert list(mt.bars[0].tracks) == [0]
+
     def test_remove_repeated_eob(self):
         mt = MultiTrack.from_remiz_str("i-0 o-0 p-60 d-12 b-1 b-1", verbose=False,
                                         remove_repeated_eob=True)

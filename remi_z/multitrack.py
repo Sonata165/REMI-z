@@ -457,6 +457,10 @@ class MultiTrack:
     ):
         """
         Create a MultiTrack object from a remiz string.
+
+        A note without an instrument token before it in its bar gets a default instrument: 128 (drums) if its
+        pitch token is a drum pitch (p- >= 128, i.e. MIDI pitch + 128), else 0 -- so instrument-free bars of
+        drums parse as a drum track.
         """
         assert isinstance(remiz_str, str), "remiz_str must be a string"
         if "b-1" not in remiz_str:
@@ -489,6 +493,7 @@ class MultiTrack:
             need_create_note = False
             notes_of_instruments = {}
             pitch = None
+            is_drum = False
             duration = None
             velocity = None
             pos = None
@@ -506,7 +511,8 @@ class MultiTrack:
                     pos = int(tok[2:])
                 elif tok.startswith("p-"):
                     pitch = int(tok[2:])
-                    if pitch >= 128:
+                    is_drum = pitch >= 128  # drum pitches are written as MIDI pitch + 128
+                    if is_drum:
                         pitch -= 128
                 elif tok.startswith("d-"):
                     duration = int(tok[2:])
@@ -528,19 +534,19 @@ class MultiTrack:
                     ):
                         pass
                     else:
-                        if inst_id is None:
-                            inst_id = 0
-                        if inst_id not in notes_of_instruments:
-                            notes_of_instruments[inst_id] = {}
-                        if pos not in notes_of_instruments[inst_id]:
-                            notes_of_instruments[inst_id][pos] = []
-                        notes_of_instruments[inst_id][pos].append(
+                        note_inst = inst_id if inst_id is not None else (128 if is_drum else 0)  # per-note default without an i- token
+                        if note_inst not in notes_of_instruments:
+                            notes_of_instruments[note_inst] = {}
+                        if pos not in notes_of_instruments[note_inst]:
+                            notes_of_instruments[note_inst][pos] = []
+                        notes_of_instruments[note_inst][pos].append(
                             [pitch, duration, velocity]
                         )
 
                     need_create_note = False
 
                     pitch = None
+                    is_drum = False
                     duration = None
                     velocity = None
 
