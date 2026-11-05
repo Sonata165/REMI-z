@@ -521,7 +521,7 @@ class TestBarToRemiz:
         seq = bar.to_remiz_seq(with_tempo=True)
         assert "t-120" in seq
 
-    @pytest.mark.parametrize("tempo, token", [(97.4, "t-97"), (97.6, "t-98"), (10.0, "t-16"), (300.0, "t-240")])
+    @pytest.mark.parametrize("tempo, token", [(97.4, "t-97"), (97.6, "t-98"), (120.5, "t-121"), (121.5, "t-122"), (10.0, "t-16"), (300.0, "t-240")])
     def test_tempo_token_rounded_and_clamped(self, tempo, token):
         bar = make_bar(tempo=tempo)
         assert token in bar.to_remiz_seq(with_tempo=True)

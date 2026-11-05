@@ -1,4 +1,5 @@
 import os
+import math
 import yaml
 import typing
 import pickle
@@ -301,10 +302,10 @@ def convert_tempo_to_token(tempo):
         tempo (float): Tempo in BPM.
 
     Returns:
-        str: ``t-{bpm}``, with ``bpm`` the tempo rounded to the nearest integer and clamped
+        str: ``t-{bpm}``, with ``bpm`` the tempo rounded to the nearest integer (.5 rounds up) and clamped
             to [MIN_TEMPO, MAX_TEMPO] (16-240), e.g. ``t-120``.
     """
-    return f"t-{min(max(round(tempo), MIN_TEMPO), MAX_TEMPO)}"
+    return f"t-{min(max(math.floor(tempo + 0.5), MIN_TEMPO), MAX_TEMPO)}"
 
 
 def convert_token_to_tempo(token):

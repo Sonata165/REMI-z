@@ -153,7 +153,7 @@ For more examples, see `demo.ipynb`.
 
 - **Tokenizer**
   - REMI‑z representation with rich bar structure and instrument awareness.
-  - Supports time‑signature tokens (`ts-(num,den)`, e.g. `ts-(6,8)`) and tempo tokens holding the BPM (`t-16` … `t-240`, rounded to the nearest integer), plus optional velocity tokens (`v-*`).
+  - Supports time‑signature tokens (`ts-(num,den)`, e.g. `ts-(6,8)`) and tempo tokens holding the BPM (`t-16` … `t-240`, rounded to the nearest integer, .5 up), plus optional velocity tokens (`v-*`).
 
 - **Hierarchy & Manipulation**
   - `Note` / `Track` / `Bar` / `MultiTrack` classes for structured symbolic music editing.
