@@ -1,5 +1,4 @@
 import bisect
-import functools
 import operator
 import os
 
@@ -9,23 +8,15 @@ from typing import Dict, List, Optional, Tuple, Union
 from .note import Note, NoteSeq
 from .bar import Bar, deduplicate_notes
 from .track import Track
-from .utils import read_yaml
 from .midi_encoding import (
     MidiEncoder,
     load_midi,
     fill_pos_ts_and_tempo_,
     adjust_pos_info_offset_overlap_,
-    convert_tempo_to_id,
-    convert_id_to_tempo,
+    convert_token_to_tempo,
 )
 from .time_signature_utils import TimeSignatureUtil
 from .keys_normalization import detect_key
-
-
-@functools.lru_cache(maxsize=None)
-def _time_signature_dict() -> dict:
-    """dict_time_signature.yaml, read once per process (parsing it took ~18 ms per MultiTrack)."""
-    return read_yaml(os.path.join(os.path.dirname(__file__), "dict_time_signature.yaml"))
 
 
 class MultiTrack:
@@ -50,9 +41,6 @@ class MultiTrack:
         used for every bar at serialization. It is not recomputed when notes are
         edited later; ``filter_tracks``, ``remove_tracks`` and
         ``change_instrument`` keep it in sync, and ``update_voice`` recomputes it.
-    ts_dict : dict
-        Dictionary mapping time-signature tokens to ``(numerator, denominator)``
-        tuples, loaded from ``dict_time_signature.yaml``.
     """
 
     def __init__(self, bars: List[Bar]):
@@ -69,9 +57,6 @@ class MultiTrack:
 
         self.update_ts_and_tempo()
         self.update_voice()
-
-        # The time signature dictionary, shared by all MultiTrack objects (read-only)
-        self.ts_dict = _time_signature_dict()
 
         self.fn = '<unknown>'
 
@@ -546,13 +531,12 @@ class MultiTrack:
             velocity = None
             pos = None
             for tok in bar_seq:
-                if tok.startswith("s-"):
+                if tok.startswith("ts-"):
                     time_sig = TimeSignatureUtil.convert_time_signature_token_to_tuple(
                         tok
                     )
                 elif tok.startswith("t-"):
-                    tempo_id = int(tok[2:])
-                    tempo = convert_id_to_tempo(tempo_id)
+                    tempo = convert_token_to_tempo(tok)
                 elif tok.startswith("i-"):
                     inst_id = int(tok[2:])
                 elif tok.startswith("o-"):
@@ -795,18 +779,6 @@ class MultiTrack:
 
         if verbose:
             print(f"MIDI file successfully written to {midi_fp}")
-
-    def convert_time_signature_to_ts_token(self, numerator, denominator):
-        ts_dict = self.ts_dict
-        valid = False
-        for k, v in ts_dict.items():
-            if v == "({}, {})".format(numerator, denominator):
-                valid = True
-                return k
-        if not valid:
-            raise ValueError(
-                "Invalid time signature: {}/{}".format(numerator, denominator)
-            )
 
     def get_note_list(self, with_drum=False) -> List[Tuple[int, int, int, int]]:
         """

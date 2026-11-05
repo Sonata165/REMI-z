@@ -1,5 +1,4 @@
 import os
-import math
 import yaml
 import typing
 import pickle
@@ -290,21 +289,40 @@ def adjust_pos_info_offset_overlap_(pos_info, include_drum=False):
     return pos_info
 
 
-def convert_tempo_to_id(x):
-    '''
-    Return: e, int, tempo id.
-    '''
-    x = max(x, 16) # min_tempo = 16
-    x = min(x, 256) # max_tempo = 256
-    tempo_quant = 12
-    x = x / 16
-    e = round(math.log2(x) * tempo_quant)
-    return e
+MIN_TEMPO = 16
+MAX_TEMPO = 240
 
 
-def convert_id_to_tempo(x):
-    tempo_quant = 12
-    min_tempo = 16
-    return 2 ** (x / tempo_quant) * min_tempo
+def convert_tempo_to_token(tempo):
+    """
+    Convert a tempo to its tempo token, which holds the BPM itself.
+
+    Args:
+        tempo (float): Tempo in BPM.
+
+    Returns:
+        str: ``t-{bpm}``, with ``bpm`` the tempo rounded to the nearest integer and clamped
+            to [MIN_TEMPO, MAX_TEMPO] (16-240), e.g. ``t-120``.
+    """
+    return f"t-{min(max(round(tempo), MIN_TEMPO), MAX_TEMPO)}"
+
+
+def convert_token_to_tempo(token):
+    """
+    Convert a tempo token to its tempo.
+
+    Args:
+        token (str): A tempo token ``t-{bpm}``, e.g. ``t-120``.
+
+    Returns:
+        float: The tempo in BPM, e.g. 120.0.
+
+    Raises:
+        ValueError: If the token is malformed or its BPM is outside [MIN_TEMPO, MAX_TEMPO].
+    """
+    value = token[2:] if token.startswith("t-") else ""
+    if not value.isdigit() or not MIN_TEMPO <= int(value) <= MAX_TEMPO:
+        raise ValueError(f"Invalid tempo token: {token}")
+    return float(value)
 
 

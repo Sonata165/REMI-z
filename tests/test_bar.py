@@ -509,17 +509,22 @@ class TestBarToRemiz:
     def test_with_ts_token(self):
         bar = make_bar(time_signature=(4, 4))
         seq = bar.to_remiz_seq(with_ts=True)
-        assert any(tok.startswith("s-") for tok in seq)
+        assert "ts-(4,4)" in seq
 
     def test_without_ts_no_ts_token(self):
         bar = make_bar()
         seq = bar.to_remiz_seq(with_ts=False)
-        assert not any(tok.startswith("s-") for tok in seq)
+        assert not any(tok.startswith("ts-") for tok in seq)
 
     def test_with_tempo_token(self):
         bar = make_bar()
         seq = bar.to_remiz_seq(with_tempo=True)
-        assert any(tok.startswith("t-") for tok in seq)
+        assert "t-120" in seq
+
+    @pytest.mark.parametrize("tempo, token", [(97.4, "t-97"), (97.6, "t-98"), (10.0, "t-16"), (300.0, "t-240")])
+    def test_tempo_token_rounded_and_clamped(self, tempo, token):
+        bar = make_bar(tempo=tempo)
+        assert token in bar.to_remiz_seq(with_tempo=True)
 
     def test_drum_excluded_by_default(self):
         bar = Bar(id=0, notes_of_insts={128: {0: [(36, 12, 64)]}})

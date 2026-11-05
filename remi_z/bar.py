@@ -4,7 +4,7 @@ from typing import List, Dict, Tuple, Optional, Iterable
 
 from .note import Note, NoteSeq
 from .track import Track
-from .midi_encoding import convert_tempo_to_id, convert_id_to_tempo
+from .midi_encoding import convert_tempo_to_token
 from .time_signature_utils import TimeSignatureUtil
 from .chord import detect_chord_from_pitch_list
 
@@ -308,7 +308,7 @@ class Bar:
                 TimeSignatureUtil.convert_time_signature_to_ts_token(int(num), int(den))
             )
         if with_tempo:
-            tokens.append(f"t-{convert_tempo_to_id(self.tempo)}")
+            tokens.append(convert_tempo_to_token(self.tempo))
         return tokens
 
     def to_remiz_str(
