@@ -1,10 +1,9 @@
 import bisect
 import functools
+import operator
 import os
 
 import miditoolkit
-import pretty_midi
-import numpy as np
 from typing import Dict, List, Optional, Tuple, Union
 
 from .note import Note, NoteSeq
@@ -118,12 +117,26 @@ class MultiTrack:
         return len(self.bars)
 
     def __getitem__(self, idx):
-        if isinstance(idx, int):
-            bar_subset = [self.bars[idx]]
-            return self.bars[idx]
-        elif isinstance(idx, slice):
-            bar_subset = self.bars[idx]
-            return MultiTrack(bars=bar_subset)
+        """
+        Get one bar, or a new MultiTrack of several bars.
+
+        Args:
+            idx (int or slice): Bar index (a Python or numpy integer, may be negative), or a slice of bars.
+
+        Returns:
+            Bar or MultiTrack: The Bar at ``idx`` for an integer; a new MultiTrack holding the selected
+                Bar objects (not copies) for a slice.
+
+        Raises:
+            TypeError: If ``idx`` is neither an integer nor a slice.
+        """
+        if isinstance(idx, slice):
+            return MultiTrack(bars=self.bars[idx])
+        try:
+            idx = operator.index(idx)
+        except TypeError:
+            raise TypeError(f"MultiTrack indices must be integers or slices, not {type(idx).__name__}") from None
+        return self.bars[idx]
 
     def __str__(self) -> str:
         return f"MultiTrack: {len(self.bars)} bars"
@@ -209,12 +222,51 @@ class MultiTrack:
 
     def quantize_to_16th(self):
         """
-        Quantize the MultiTrack object to 16th notes.
-        On both onset and duration.
+        Quantize onsets and durations of all notes to 16th notes (3 positions), in place.
+
+        Every onset stays inside its bar: a note whose onset is rounded up to the bar
+        line is moved to position 0 of the next bar (into that bar's track of the same
+        instrument, created if missing), keeping its duration. In the last bar, such a
+        note is moved to the last 16th position of the bar instead. Within each bar,
+        every track is made a valid NoteSeq again (see NoteSeq.quantize). Bars, time
+        signatures, tempos and ``self.voice`` are kept.
         """
-        for bar in self.bars:
+        carried = {}  # inst_id -> notes moved to position 0 of the current bar
+        for i, bar in enumerate(self.bars):
+            num, den = bar.time_signature
+            bar_len = num * 48 // den
+            is_last_bar = i == len(self.bars) - 1
+            next_carried = {}
             for inst_id, track in bar.tracks.items():
                 track.notes.quantize(3)
+                inside = [n for n in track.notes if n.onset < bar_len]
+                overflow = [n for n in track.notes if n.onset >= bar_len]
+                if not overflow:
+                    continue
+                if is_last_bar:
+                    for n in overflow:
+                        n.onset = (bar_len - 1) // 3 * 3
+                    track.notes = inside + overflow
+                else:
+                    for n in overflow:
+                        n.onset -= bar_len
+                    track.notes = inside
+                    next_carried[inst_id] = overflow
+
+            if carried or next_carried:
+                tracks = []
+                for inst_id, track in bar.tracks.items():
+                    if inst_id in carried:
+                        track.notes.extend(carried[inst_id])
+                    elif inst_id in next_carried and len(track) == 0:
+                        continue  # all its notes moved to the next bar
+                    tracks.append(track)
+                tracks += [
+                    Track.from_note_list(inst_id=inst_id, note_list=notes)
+                    for inst_id, notes in carried.items() if inst_id not in bar.tracks
+                ]
+                bar._set_tracks(tracks)
+            carried = next_carried
 
     def detect_key(self):
         """
@@ -335,6 +387,9 @@ class MultiTrack:
         Across bar lines, drum tracks are left unchanged; within a bar every track
         holds a valid NoteSeq, drums included.
 
+        Each bar takes the tempo in effect at its first position: a tempo change
+        inside a bar takes effect from the next bar on.
+
         Args:
             support_same_program_multi_instance: No longer supported; must be False.
                 Use program_map instead.
@@ -382,15 +437,11 @@ class MultiTrack:
         for i in range(len(pos_info)):
             bar_id, ts, pos, tempo, insts_notes = pos_info[i]
 
-            # Update time signature and tempo
-            if ts is not None:
-                cur_ts = ts
-            if tempo is not None:
-                cur_tempo = tempo
-
-            # Determine if this is a new bar
+            # Determine if this is a new bar; a bar takes the time signature and tempo at its start
             if bar_id > bar_id_prev_pos:
                 notes_of_tracks = {}
+                cur_ts = ts
+                cur_tempo = tempo
 
             # Add the note info
             if insts_notes is not None:
@@ -469,10 +520,7 @@ class MultiTrack:
                     f'WARNING: remiz_str "{remiz_str}" does not contain any bar information. Adding a end-of-bar at the end.'
                 )
             remiz_str += " b-1"
-        if "v" in remiz_str:
-            with_velocity = True
-        else:
-            with_velocity = False
+        with_velocity = any(tok.startswith("v-") for tok in remiz_str.split())
 
         # Remove repeated 'b-1' token
         if remove_repeated_eob:
@@ -618,16 +666,20 @@ class MultiTrack:
         """
         Create a MIDI file from the MultiTrack object using miditoolkit.
 
+        The MultiTrack itself is not modified.
+
         Args:
-            midi_fp: The file path to save the MIDI file.
-            tempo: If specified, override all tempos in the MultiTrack with this value.
+            midi_fp (str): The file path to save the MIDI file.
+            tempo (float, optional): If specified, write every bar with this tempo (BPM,
+                rounded to 2 decimals) instead of the bar's own tempo.
+            verbose (bool): Print the output path after writing. Default True.
         """
         assert isinstance(midi_fp, str), "midi_fp must be a string"
 
         if tempo is not None:
             assert isinstance(tempo, (int, float)), "tempo must be an integer or float"
             tempo = round(tempo, 2)
-            self.set_tempo(tempo)
+        bar_tempos = [bar.tempo if tempo is None else tempo for bar in self.bars]
 
         # 创建一个空的 MidiFile 对象
         # 默认 ticks_per_beat 是480，你可以根据需要修改
@@ -636,7 +688,7 @@ class MultiTrack:
 
         # 如果有小节，则获取初始速度，否则用默认值120 BPM
         if len(self.bars) > 0:
-            initial_tempo = self.bars[0].tempo
+            initial_tempo = bar_tempos[0]
         else:
             initial_tempo = 120.0
 
@@ -684,13 +736,13 @@ class MultiTrack:
                 last_time_signature = bar.time_signature
 
             # 如果速度变了，插入新的 TempoChange 事件
-            if bar.tempo != last_tempo:
+            if bar_tempos[bar_index] != last_tempo:
                 midi_obj.tempo_changes.append(
                     miditoolkit.midi.containers.TempoChange(
-                        tempo=bar.tempo, time=cumulative_bar_ticks
+                        tempo=bar_tempos[bar_index], time=cumulative_bar_ticks
                     )
                 )
-                last_tempo = bar.tempo
+                last_tempo = bar_tempos[bar_index]
 
             # 计算本小节的长度（以拍为单位）
             # 拍数 = 分子 * (4 / 分母)
@@ -743,105 +795,6 @@ class MultiTrack:
 
         if verbose:
             print(f"MIDI file successfully written to {midi_fp}")
-
-    def to_midi_prettymidi(self, midi_fp: str):
-        """
-        Create a MIDI file from the MultiTrack object.
-
-        Deprecated: Use to_midi() instead. Because this version cannot handle tempo changes.
-        """
-        assert isinstance(midi_fp, str), "midi_fp must be a string"
-
-        import numpy as np
-        import pretty_midi
-
-        # Initialize instrument map
-        instrument_map = {}
-
-        # Track the cumulative time for each bar
-        cumulative_bar_time = 0.0
-
-        last_time_signature = (
-            self.bars[0].time_signature if len(self.bars) > 0 else None
-        )
-
-        tempo_change_times = []
-        tempi = []
-
-        if len(self.bars) > 0:
-            initial_tempo = self.bars[0].tempo
-        else:
-            initial_tempo = 120.0
-
-        # Set the initial tempo event at time zero
-        tempo_change_times.append(0.0)
-        tempi.append(60_000_000 / initial_tempo)
-        last_tempo = initial_tempo
-
-        # Create a PrettyMIDI object
-        midi = pretty_midi.PrettyMIDI(initial_tempo=initial_tempo)
-
-        for bar in self.bars:
-            # Handle time signature changes
-            if bar.time_signature != last_time_signature:
-                numerator, denominator = bar.time_signature
-                midi.time_signature_changes.append(
-                    pretty_midi.TimeSignature(
-                        numerator, denominator, cumulative_bar_time
-                    )
-                )
-                last_time_signature = bar.time_signature
-
-            # Handle tempo changes
-            if bar.tempo != last_tempo:
-                tempo_in_microseconds = 60_000_000 / bar.tempo
-                tempo_change_times.append(cumulative_bar_time)
-                tempi.append(tempo_in_microseconds)
-                last_tempo = bar.tempo
-
-            # Iterate over tracks in the current bar
-            for inst_id, track in bar.tracks.items():
-                # Ensure instrument_map is used correctly
-                if inst_id not in instrument_map:
-                    program = 0 if inst_id == 128 else inst_id
-                    instrument = pretty_midi.Instrument(
-                        program=program, is_drum=(inst_id == 128)
-                    )
-                    instrument_map[inst_id] = instrument
-                    midi.instruments.append(instrument)
-                else:
-                    instrument = instrument_map[inst_id]
-
-                for note in track.notes:
-                    onset_time_beats = note.onset / 12.0
-                    onset_time_seconds = cumulative_bar_time + (
-                        onset_time_beats * (60.0 / bar.tempo)
-                    )
-                    duration_beats = note.duration / 12.0
-                    duration_seconds = duration_beats * (60.0 / bar.tempo)
-
-                    midi_note = pretty_midi.Note(
-                        velocity=note.velocity,
-                        pitch=note.pitch,
-                        start=onset_time_seconds,
-                        end=onset_time_seconds + duration_seconds,
-                    )
-                    instrument.notes.append(midi_note)
-
-            # Calculate beats per bar using the current bar's time signature
-            beats_per_bar = bar.time_signature[0] * (
-                4 / bar.time_signature[1]
-            )  # Numerator * (4 / Denominator)
-            bar_duration = beats_per_bar * (60.0 / bar.tempo)
-            cumulative_bar_time += bar_duration
-
-        # Set tempo changes in PrettyMIDI
-        midi._tempo_change_times = np.array(tempo_change_times)
-        midi._tempi = np.array(tempi)
-
-        # Write MIDI file
-        midi.write(midi_fp)
-        print(f"MIDI file successfully written to {midi_fp}")
 
     def convert_time_signature_to_ts_token(self, numerator, denominator):
         ts_dict = self.ts_dict
@@ -1027,8 +980,6 @@ class MultiTrack:
         Will return max_pitch - min_pitch + 1
         If no notes found, return -1.
         """
-        all_insts = self.get_unique_insts()
-
         notes = self.get_all_notes(include_drum=False)
         if len(notes) == 0:
             return -1
@@ -1262,9 +1213,3 @@ class MultiTrack:
             self.voice[self.voice.index(old_inst_id)] = new_inst_id
 
 
-def save_remiz_str_to_midi(remiz_str: str, midi_fp: str):
-    """
-    Save a REMI-z string to a MIDI file.
-    """
-    mt = MultiTrack.from_remiz_str(remiz_str, verbose=False)
-    mt.to_midi(midi_fp)
