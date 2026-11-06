@@ -64,6 +64,10 @@ mt = MultiTrack.from_midi("your_song.mid")
 remiz_str = mt.to_remiz_str(with_ts=True, with_tempo=True, with_velocity=True)
 ```
 
+Tracks are written in every bar in one song-level order: `order="high_to_low"` (the default; highest average
+pitch first, drums last) or `order="low_to_high"` (drums first, then lowest average pitch to highest); or pass
+`voice=[...]` (instrument IDs) instead of `order` for any other order.
+
 **2. REMI‑z tokens → MIDI**
 
 ```python

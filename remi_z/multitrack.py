@@ -41,6 +41,7 @@ class MultiTrack:
         used for every bar at serialization. It is not recomputed when notes are
         edited later; ``filter_tracks``, ``remove_tracks`` and
         ``change_instrument`` keep it in sync, and ``update_voice`` recomputes it.
+        ``get_voice(order)`` gives other serialization orders derived from it.
     """
 
     def __init__(self, bars: List[Bar]):
@@ -84,19 +85,36 @@ class MultiTrack:
         all bars, highest first; drums (128) come last, and an instrument with no
         notes counts as average pitch 0. Ties keep the order of first appearance.
         """
+        avg = self._avg_pitches()
+        self.voice = sorted(avg, key=lambda inst_id: -avg[inst_id])
+
+    def _avg_pitches(self) -> Dict[int, float]:
+        """Instrument ID -> average pitch over all its notes (-1 for drums, 0 without notes), in order of first
+        appearance."""
         pitch_sum = {}
         n_notes = {}
         for bar in self.bars:
             for inst_id, track in bar.tracks.items():
                 pitch_sum[inst_id] = pitch_sum.get(inst_id, 0) + sum(n.pitch for n in track.notes)
                 n_notes[inst_id] = n_notes.get(inst_id, 0) + len(track)
+        return {inst_id: -1 if inst_id == 128 else (pitch_sum[inst_id] / n_notes[inst_id] if n_notes[inst_id] else 0)
+                for inst_id in pitch_sum}
 
-        def avg_pitch(inst_id):
-            if inst_id == 128:
-                return -1
-            return pitch_sum[inst_id] / n_notes[inst_id] if n_notes[inst_id] > 0 else 0
+    def get_voice(self, order: str = "high_to_low") -> List[int]:
+        """
+        The song-level track order used for serialization.
 
-        self.voice = sorted(pitch_sum, key=lambda inst_id: -avg_pitch(inst_id))
+        Args:
+            order: "high_to_low" -- ``self.voice``: highest average pitch first, drums last;
+                "low_to_high" -- drums first, then the pitched tracks from the lowest average
+                pitch to the highest; tracks of equal average pitch keep their ``self.voice`` order.
+        """
+        if order == "high_to_low":
+            return list(self.voice)
+        if order == "low_to_high":
+            avg = self._avg_pitches()
+            return sorted(self.voice, key=lambda inst_id: (inst_id != 128, avg.get(inst_id, 0)))
+        raise ValueError(f'order must be "high_to_low" or "low_to_high", got {order!r}')
 
     def __len__(self):
         return len(self.bars)
@@ -600,6 +618,7 @@ class MultiTrack:
         with_velocity=False,
         include_drum=False,
         voice: Optional[List[int]] = None,
+        order: Optional[str] = None,
     ):
         """
         Convert the MultiTrack object to a REMI-z sequence of tokens.
@@ -609,11 +628,16 @@ class MultiTrack:
             with_tempo: Add a tempo token at the start of every bar.
             with_velocity: Add a velocity token after every note.
             include_drum: Include drum tracks (default False).
-            voice: Track order as a list of instrument IDs, used for every bar.
-                Defaults to ``self.voice``. It must list every instrument of the piece.
+            voice: Track order as a list of instrument IDs, used for every bar. It must list every
+                instrument of the piece.
+            order: Track order (see :meth:`get_voice`): "high_to_low" (highest average pitch first,
+                drums last) or "low_to_high" (drums first, then lowest average pitch to highest).
+                Give ``voice`` or ``order``, not both; with neither, "high_to_low".
         """
         if voice is None:
-            voice = self.voice
+            voice = self.get_voice("high_to_low" if order is None else order)
+        elif order is not None:
+            raise ValueError("give either voice or order, not both")
         ret = []
         for bar in self.bars:
             bar_seq = bar.to_remiz_seq(
@@ -633,6 +657,7 @@ class MultiTrack:
         with_velocity=False,
         include_drum=False,
         voice: Optional[List[int]] = None,
+        order: Optional[str] = None,
     ):
         """
         Convert the MultiTrack object to a REMI-z string. See :meth:`to_remiz_seq`.
@@ -643,6 +668,7 @@ class MultiTrack:
             with_velocity=with_velocity,
             include_drum=include_drum,
             voice=voice,
+            order=order,
         )
         return " ".join(ret)
 
