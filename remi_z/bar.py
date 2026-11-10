@@ -334,6 +334,7 @@ class Bar:
         include_drum=False,
         voice: Optional[List[int]] = None,
         with_chord=False,
+        with_voice_plan=False,
     ):
         """
         Serialize the Bar to a whitespace-delimited REMI-z string.
@@ -352,6 +353,8 @@ class Bar:
             Track order as a list of instrument IDs; see :meth:`to_remiz_seq`.
         with_chord : bool, optional
             Prepend chord tokens; see :meth:`to_remiz_seq` (default ``False``).
+        with_voice_plan : bool, optional
+            Prepend the bar's instrument tokens; see :meth:`to_remiz_seq` (default ``False``).
 
         Returns
         -------
@@ -365,6 +368,7 @@ class Bar:
             include_drum=include_drum,
             voice=voice,
             with_chord=with_chord,
+            with_voice_plan=with_voice_plan,
         )
         return " ".join(remiz_seq)
 
@@ -376,6 +380,7 @@ class Bar:
         include_drum=False,
         voice: Optional[List[int]] = None,
         with_chord=False,
+        with_voice_plan=False,
     ):
         """
         Serialize the Bar to a list of REMI-z tokens.
@@ -402,6 +407,10 @@ class Bar:
             chords (:meth:`get_chord`), each as a root and a quality token, e.g.
             ``cr-C cq-maj cr-A cq-min7``; ``cr-N cq-N`` where no chord is detected
             (default ``False``). Parsing ignores these tokens.
+        with_voice_plan : bool, optional
+            After the chord tokens, add the instrument tokens of the tracks that
+            follow, in the same order, e.g. ``i-128 i-33 i-0`` (default ``False``).
+            Parsing ignores them (they are followed by no notes).
 
         Returns
         -------
@@ -411,11 +420,11 @@ class Bar:
         bar_seq = self._get_meta_tokens(with_ts, with_tempo)
         if with_chord:
             bar_seq.extend(self.get_chord_seq())
-        for inst_id in self._resolve_voice(voice):
-            track = self.tracks[inst_id]
-            if not include_drum and track.is_drum:
-                continue
-            bar_seq.extend(track.to_remiz_seq(with_velocity=with_velocity))
+        insts = [i for i in self._resolve_voice(voice) if include_drum or not self.tracks[i].is_drum]
+        if with_voice_plan:
+            bar_seq.extend(f"i-{inst_id}" for inst_id in insts)
+        for inst_id in insts:
+            bar_seq.extend(self.tracks[inst_id].to_remiz_seq(with_velocity=with_velocity))
         bar_seq.append("b-1")
 
         return bar_seq

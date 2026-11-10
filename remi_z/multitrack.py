@@ -621,6 +621,7 @@ class MultiTrack:
         order: Optional[str] = None,
         voice_from: Optional[str] = None,
         with_chord=False,
+        with_voice_plan=False,
     ):
         """
         Convert the MultiTrack object to a REMI-z sequence of tokens.
@@ -639,7 +640,11 @@ class MultiTrack:
                 each instrument's notes over the whole piece, :meth:`get_voice`).
             with_chord: Add two chords (root and quality tokens) at the start of every bar, see
                 :meth:`Bar.to_remiz_seq`.
+            with_voice_plan: After the chord tokens, add the instrument tokens of the bar in its track order
+                (:meth:`Bar.to_remiz_seq`). Needs bar-level order: not with ``voice`` or ``voice_from="song"``.
         """
+        if with_voice_plan and (voice is not None or voice_from not in (None, "bar")):
+            raise ValueError('with_voice_plan needs voice_from="bar" (no voice, no voice_from="song")')
         if voice is not None:
             if order is not None or voice_from is not None:
                 raise ValueError("give voice alone, without order or voice_from")
@@ -659,6 +664,7 @@ class MultiTrack:
                 include_drum=include_drum,
                 voice=voice if voice is not None else bar.get_voice(order),
                 with_chord=with_chord,
+                with_voice_plan=with_voice_plan,
             )
             ret.extend(bar_seq)
         return ret
@@ -673,6 +679,7 @@ class MultiTrack:
         order: Optional[str] = None,
         voice_from: Optional[str] = None,
         with_chord=False,
+        with_voice_plan=False,
     ):
         """
         Convert the MultiTrack object to a REMI-z string. See :meth:`to_remiz_seq`.
@@ -686,6 +693,7 @@ class MultiTrack:
             order=order,
             voice_from=voice_from,
             with_chord=with_chord,
+            with_voice_plan=with_voice_plan,
         )
         return " ".join(ret)
 
