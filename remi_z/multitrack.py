@@ -678,6 +678,18 @@ class MultiTrack:
         )
         return " ".join(ret)
 
+    def to_chord_seq(self) -> List[str]:
+        """
+        The chord progression as tokens: for every bar its two half-bar chords
+        (root and quality tokens, see :meth:`Bar.get_chord_seq`) and ``b-1``,
+        e.g. ``['cr-F', 'cq-maj7', 'cr-G', 'cq-maj', 'b-1', ...]``.
+        """
+        ret = []
+        for bar in self.bars:
+            ret.extend(bar.get_chord_seq())
+            ret.append("b-1")
+        return ret
+
     def to_midi(self, midi_fp: str, tempo: float = None, verbose: bool = True):
         """
         Create a MIDI file from the MultiTrack object using miditoolkit.

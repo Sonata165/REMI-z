@@ -395,8 +395,7 @@ class Bar:
         """
         bar_seq = self._get_meta_tokens(with_ts, with_tempo)
         if with_chord:
-            for chord in self.get_chord(n_chord=2):
-                bar_seq.extend(NO_CHORD_TOKENS if chord is None else chord.to_remiz_seq())
+            bar_seq.extend(self.get_chord_seq())
         for inst_id in self._resolve_voice(voice):
             track = self.tracks[inst_id]
             if not include_drum and track.is_drum:
@@ -689,6 +688,17 @@ class Bar:
         for note in self.get_all_notes(include_drum=False):
             segments[min(note.onset * n_chord // bar_len, n_chord - 1)].append(note)
         return [detect_chord_from_note_seq(NoteSeq(notes)) for notes in segments]
+
+    def get_chord_seq(self) -> List[str]:
+        """
+        The chord tokens of this bar: its two half-bar chords (:meth:`get_chord`),
+        each as a root and a quality token, e.g. ``['cr-C', 'cq-maj', 'cr-A', 'cq-min7']``;
+        ``cr-N cq-N`` for a half bar where no chord is detected. No ``b-1``.
+        """
+        seq = []
+        for chord in self.get_chord(n_chord=2):
+            seq.extend(NO_CHORD_TOKENS if chord is None else chord.to_remiz_seq())
+        return seq
 
     def get_phrases(self, with_bar_end=False, voice: Optional[List[int]] = None) -> List[str]:
         """
