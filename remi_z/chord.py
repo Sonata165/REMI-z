@@ -1,5 +1,7 @@
 from typing import List, Optional
 
+from .note import NoteSeq
+
 
 # Mapping between semitone index and note name
 note_id_to_note_name = {
@@ -23,6 +25,15 @@ chords = {
     'm7b5': [0, 3, 6, 10],   # Half-diminished 7th
 }
 
+# Quality spelled out for the cq- token
+quality_to_token_name = {
+    '': 'maj', 'm': 'min', 'dim': 'dim', 'aug': 'aug', 'sus4': 'sus4', 'sus2': 'sus2',
+    'M7': 'maj7', 'm7': 'min7', '7': 'dom7', 'o': 'dim7', 'm7b5': 'hdim7',
+}
+
+# Tokens written for a segment where no chord is detected
+NO_CHORD_TOKENS = ['cr-N', 'cq-N']
+
 
 class Chord:
     """
@@ -43,6 +54,12 @@ class Chord:
 
     def __repr__(self) -> str:
         return self.__str__()
+
+    def to_remiz_seq(self) -> List[str]:
+        """
+        The chord's REMI-z tokens: root and quality, e.g. ``['cr-F#', 'cq-min7']``. The bass is not written.
+        """
+        return [f"cr-{self.root}", f"cq-{quality_to_token_name[self.quality]}"]
 
 
 class ChordSeq:
@@ -124,6 +141,57 @@ def detect_chord_from_pitch_list(note_list: List[int]) -> Optional[Chord]:
     root_name = note_id_to_note_name[root_int]
     bass = bass_name if bass_name != root_name else None
     return Chord(root=root_name, quality=chord_type, bass=bass)
+
+
+def detect_chord_from_note_seq(note_seq: NoteSeq) -> Optional[Chord]:
+    """
+    Detect the best matching chord from the notes of a NoteSeq.
+
+    Uses the lowest note's pitch class as the suspected root and finds the chord
+    type whose pattern covers the most of the notes' pitch classes; other roots
+    are tried only if not every pitch class is covered. Onset, duration and
+    velocity are ignored. The NoteSeq should hold pitched notes only (no drums).
+
+    Parameters
+    ----------
+    note_seq : NoteSeq
+        The notes to detect a chord from.
+
+    Returns
+    -------
+    Chord or None
+        The best matching Chord, or None if the notes have fewer than 2 distinct
+        pitch classes.
+    """
+    pitches = [note.pitch for note in note_seq]
+    pitch_classes = set(p % 12 for p in pitches)
+    if len(pitch_classes) < 2:
+        return None
+
+    bass_int = min(pitches) % 12
+
+    best_match = None
+    max_match_size = 0
+    for chord_type, pattern in chords.items():
+        match_size = len(pitch_classes & set((bass_int + p) % 12 for p in pattern))
+        if match_size > max_match_size:
+            best_match = (bass_int, chord_type)
+            max_match_size = match_size
+
+    if max_match_size < len(pitch_classes):
+        for chord_type, pattern in chords.items():
+            for root in range(12):
+                if root == bass_int:
+                    continue
+                match_size = len(pitch_classes & set((root + p) % 12 for p in pattern))
+                if match_size > max_match_size:
+                    best_match = (root, chord_type)
+                    max_match_size = match_size
+
+    root_int, chord_type = best_match
+    root_name = note_id_to_note_name[root_int]
+    bass_name = note_id_to_note_name[bass_int]
+    return Chord(root=root_name, quality=chord_type, bass=bass_name if bass_name != root_name else None)
 
 
 def generate_chord_notes(chord_root_name: str, chord_type: str) -> List[str]:

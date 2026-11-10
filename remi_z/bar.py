@@ -6,7 +6,7 @@ from .note import Note, NoteSeq
 from .track import Track
 from .midi_encoding import convert_tempo_to_token
 from .time_signature_utils import TimeSignatureUtil
-from .chord import detect_chord_from_pitch_list
+from .chord import NO_CHORD_TOKENS, detect_chord_from_pitch_list, detect_chord_from_note_seq
 
 
 def deduplicate_notes(notes: List[Note]) -> List[Note]:
@@ -318,6 +318,7 @@ class Bar:
         with_velocity=False,
         include_drum=False,
         voice: Optional[List[int]] = None,
+        with_chord=False,
     ):
         """
         Serialize the Bar to a whitespace-delimited REMI-z string.
@@ -334,6 +335,8 @@ class Bar:
             Include drum tracks in the output (default ``False``).
         voice : List[int], optional
             Track order as a list of instrument IDs; see :meth:`to_remiz_seq`.
+        with_chord : bool, optional
+            Prepend chord tokens; see :meth:`to_remiz_seq` (default ``False``).
 
         Returns
         -------
@@ -346,6 +349,7 @@ class Bar:
             with_velocity=with_velocity,
             include_drum=include_drum,
             voice=voice,
+            with_chord=with_chord,
         )
         return " ".join(remiz_seq)
 
@@ -356,6 +360,7 @@ class Bar:
         with_velocity=False,
         include_drum=False,
         voice: Optional[List[int]] = None,
+        with_chord=False,
     ):
         """
         Serialize the Bar to a list of REMI-z tokens.
@@ -377,6 +382,11 @@ class Bar:
             Track order as a list of instrument IDs. Defaults to ``self.voice``.
             Instruments not in this bar are skipped; every track of the bar must
             be listed.
+        with_chord : bool, optional
+            After the time-signature and tempo tokens, add the bar's two half-bar
+            chords (:meth:`get_chord`), each as a root and a quality token, e.g.
+            ``cr-C cq-maj cr-A cq-min7``; ``cr-N cq-N`` where no chord is detected
+            (default ``False``). Parsing ignores these tokens.
 
         Returns
         -------
@@ -384,6 +394,9 @@ class Bar:
             REMI-z token list ending with ``'b-1'``.
         """
         bar_seq = self._get_meta_tokens(with_ts, with_tempo)
+        if with_chord:
+            for chord in self.get_chord(n_chord=2):
+                bar_seq.extend(NO_CHORD_TOKENS if chord is None else chord.to_remiz_seq())
         for inst_id in self._resolve_voice(voice):
             track = self.tracks[inst_id]
             if not include_drum and track.is_drum:
@@ -640,34 +653,42 @@ class Bar:
         low, high = notes.get_pitch_range()
         return int(high - low) + 1
 
-    def get_chord(self):
+    def get_chord(self, n_chord: int = 2):
         """
-        Detect the two half-bar chords for this bar.
+        Detect the chords of this bar, one per equal segment.
 
-        Splits all non-drum notes into the first half (onset < 24) and the
-        second half (onset >= 24) and runs chord detection on each group.
+        Splits the bar into ``n_chord`` equal segments by position and runs
+        chord detection on the non-drum notes whose onset falls in each segment.
+
+        Parameters
+        ----------
+        n_chord : int, optional
+            Number of chords (segments) per bar (default 2: one per half bar).
 
         Returns
         -------
         List[Optional[Chord]]
-            A two-element list ``[chord_1, chord_2]``.  Each element is a
+            ``n_chord`` elements, in time order. Each is a
             :class:`~remi_z.chord.Chord` instance, or ``None`` if no chord
-            could be detected for that half.
+            could be detected for that segment.
 
             Example: ``[Chord('C', ''), Chord('D', 'm7')]``
 
         Notes
         -----
-        Only 4/4 bars are supported (position 24 is the half-bar boundary).
+        The bar length is ``48 * num // den`` positions for a ``num/den`` time
+        signature (48 for 4/4, so the default splits at position 24). Notes
+        starting at or after the bar end are put in the last segment.
         """
-        notes = self.get_all_notes(include_drum=False)
+        if n_chord < 1:
+            raise ValueError(f"n_chord must be at least 1, got {n_chord}")
+        num, den = self.time_signature
+        bar_len = 48 * num // den
 
-        p_list_1 = [note.pitch for note in notes if note.onset < 24]
-        p_list_2 = [note.pitch for note in notes if note.onset >= 24]
-
-        chord_1 = detect_chord_from_pitch_list(p_list_1)
-        chord_2 = detect_chord_from_pitch_list(p_list_2)
-        return [chord_1, chord_2]
+        segments = [[] for _ in range(n_chord)]
+        for note in self.get_all_notes(include_drum=False):
+            segments[min(note.onset * n_chord // bar_len, n_chord - 1)].append(note)
+        return [detect_chord_from_note_seq(NoteSeq(notes)) for notes in segments]
 
     def get_phrases(self, with_bar_end=False, voice: Optional[List[int]] = None) -> List[str]:
         """

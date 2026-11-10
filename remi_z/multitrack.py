@@ -619,6 +619,7 @@ class MultiTrack:
         include_drum=False,
         voice: Optional[List[int]] = None,
         order: Optional[str] = None,
+        with_chord=False,
     ):
         """
         Convert the MultiTrack object to a REMI-z sequence of tokens.
@@ -633,6 +634,8 @@ class MultiTrack:
             order: Track order (see :meth:`get_voice`): "high_to_low" (highest average pitch first,
                 drums last) or "low_to_high" (drums first, then lowest average pitch to highest).
                 Give ``voice`` or ``order``, not both; with neither, "high_to_low".
+            with_chord: Add two chords (root and quality tokens) at the start of every bar, see
+                :meth:`Bar.to_remiz_seq`.
         """
         if voice is None:
             voice = self.get_voice("high_to_low" if order is None else order)
@@ -646,6 +649,7 @@ class MultiTrack:
                 with_velocity=with_velocity,
                 include_drum=include_drum,
                 voice=voice,
+                with_chord=with_chord,
             )
             ret.extend(bar_seq)
         return ret
@@ -658,6 +662,7 @@ class MultiTrack:
         include_drum=False,
         voice: Optional[List[int]] = None,
         order: Optional[str] = None,
+        with_chord=False,
     ):
         """
         Convert the MultiTrack object to a REMI-z string. See :meth:`to_remiz_seq`.
@@ -669,6 +674,7 @@ class MultiTrack:
             include_drum=include_drum,
             voice=voice,
             order=order,
+            with_chord=with_chord,
         )
         return " ".join(ret)
 
