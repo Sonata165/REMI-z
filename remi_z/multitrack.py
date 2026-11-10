@@ -619,6 +619,7 @@ class MultiTrack:
         include_drum=False,
         voice: Optional[List[int]] = None,
         order: Optional[str] = None,
+        voice_from: Optional[str] = None,
         with_chord=False,
     ):
         """
@@ -630,17 +631,25 @@ class MultiTrack:
             with_velocity: Add a velocity token after every note.
             include_drum: Include drum tracks (default False).
             voice: Track order as a list of instrument IDs, used for every bar. It must list every
-                instrument of the piece.
-            order: Track order (see :meth:`get_voice`): "high_to_low" (highest average pitch first,
-                drums last) or "low_to_high" (drums first, then lowest average pitch to highest).
-                Give ``voice`` or ``order``, not both; with neither, "high_to_low".
+                instrument of the piece. Give it alone, without ``order`` or ``voice_from``.
+            order: Track order: "high_to_low" (highest average pitch first, drums last; the default)
+                or "low_to_high" (drums first, then lowest average pitch to highest).
+            voice_from: Where the average pitches of ``order`` come from: "bar" (the default; each bar
+                ordered by its own tracks, :meth:`Bar.get_voice`) or "song" (one order for every bar, from
+                each instrument's notes over the whole piece, :meth:`get_voice`).
             with_chord: Add two chords (root and quality tokens) at the start of every bar, see
                 :meth:`Bar.to_remiz_seq`.
         """
-        if voice is None:
-            voice = self.get_voice("high_to_low" if order is None else order)
-        elif order is not None:
-            raise ValueError("give either voice or order, not both")
+        if voice is not None:
+            if order is not None or voice_from is not None:
+                raise ValueError("give voice alone, without order or voice_from")
+        else:
+            order = "high_to_low" if order is None else order
+            voice_from = "bar" if voice_from is None else voice_from
+            if voice_from not in ("bar", "song"):
+                raise ValueError(f'voice_from must be "bar" or "song", got {voice_from!r}')
+            if voice_from == "song":
+                voice = self.get_voice(order)
         ret = []
         for bar in self.bars:
             bar_seq = bar.to_remiz_seq(
@@ -648,7 +657,7 @@ class MultiTrack:
                 with_tempo=with_tempo,
                 with_velocity=with_velocity,
                 include_drum=include_drum,
-                voice=voice,
+                voice=voice if voice is not None else bar.get_voice(order),
                 with_chord=with_chord,
             )
             ret.extend(bar_seq)
@@ -662,6 +671,7 @@ class MultiTrack:
         include_drum=False,
         voice: Optional[List[int]] = None,
         order: Optional[str] = None,
+        voice_from: Optional[str] = None,
         with_chord=False,
     ):
         """
@@ -674,6 +684,7 @@ class MultiTrack:
             include_drum=include_drum,
             voice=voice,
             order=order,
+            voice_from=voice_from,
             with_chord=with_chord,
         )
         return " ".join(ret)

@@ -579,8 +579,30 @@ class TestMultiTrackVoice:
         assert MultiTrack(bars=[make_bar(0, {})]).voice == []
 
     def test_serialization_uses_song_voice_in_every_bar(self):
-        seq = self.make_crossing_mt().to_remiz_seq()
+        seq = self.make_crossing_mt().to_remiz_seq(voice_from="song")
         assert self.insts(seq) == ["i-48", "i-0", "b-1", "i-48", "i-0", "b-1"]
+
+    def test_default_uses_bar_voice(self):
+        seq = self.make_crossing_mt().to_remiz_seq()
+        assert self.insts(seq) == ["i-0", "i-48", "b-1", "i-48", "i-0", "b-1"]
+        assert seq == self.make_crossing_mt().to_remiz_seq(order="high_to_low", voice_from="bar")
+
+    def test_low_to_high_bar_and_song(self):
+        mt = self.make_crossing_mt()
+        bar = mt.to_remiz_seq(include_drum=True, order="low_to_high")
+        assert self.insts(bar) == ["i-48", "i-0", "b-1", "i-128", "i-0", "i-48", "b-1"]
+        song = mt.to_remiz_seq(include_drum=True, order="low_to_high", voice_from="song")
+        assert self.insts(song) == ["i-0", "i-48", "b-1", "i-128", "i-0", "i-48", "b-1"]
+
+    def test_voice_alone(self):
+        mt = self.make_crossing_mt()
+        for kw in ({"order": "low_to_high"}, {"voice_from": "bar"}, {"voice_from": "song"}):
+            with pytest.raises(ValueError, match="voice alone"):
+                mt.to_remiz_seq(voice=[0, 48, 128], **kw)
+
+    def test_bad_voice_from(self):
+        with pytest.raises(ValueError, match="voice_from"):
+            self.make_crossing_mt().to_remiz_seq(voice_from="track")
 
     def test_voice_param(self):
         mt = self.make_crossing_mt()
@@ -589,7 +611,7 @@ class TestMultiTrackVoice:
         assert mt.to_remiz_str(voice=[0, 48, 128]) == " ".join(seq)
 
     def test_include_drum(self):
-        seq = self.make_crossing_mt().to_remiz_seq(include_drum=True)
+        seq = self.make_crossing_mt().to_remiz_seq(include_drum=True, voice_from="song")
         assert self.insts(seq) == ["i-48", "i-0", "b-1", "i-48", "i-0", "i-128", "b-1"]
 
     def test_roundtrip_stable(self):
@@ -621,13 +643,13 @@ class TestMultiTrackVoice:
         mt = self.make_crossing_mt()
         mt.change_instrument(old_inst_id=48, new_inst_id=40)
         assert mt.voice == [40, 0, 128]
-        assert self.insts(mt.to_remiz_seq()) == ["i-40", "i-0", "b-1", "i-40", "i-0", "b-1"]
+        assert self.insts(mt.to_remiz_seq(voice_from="song")) == ["i-40", "i-0", "b-1", "i-40", "i-0", "b-1"]
 
     def test_change_instrument_merges(self):
         mt = self.make_crossing_mt()
         mt.change_instrument(old_inst_id=48, new_inst_id=0)
         assert mt.voice == [0, 128]
-        assert self.insts(mt.to_remiz_seq()) == ["i-0", "b-1", "i-0", "b-1"]
+        assert self.insts(mt.to_remiz_seq(voice_from="song")) == ["i-0", "b-1", "i-0", "b-1"]
 
     def test_get_inst_layout_follows_song_voice(self):
         assert self.make_crossing_mt().get_inst_layout() == [["i-48", "i-0", "b-1"], ["i-48", "i-0", "i-128", "b-1"]]
@@ -636,7 +658,7 @@ class TestMultiTrackVoice:
         mt = self.make_crossing_mt()
         mt.bars[0].change_instrument(old_inst_id=0, new_inst_id=1)  # bypasses mt.voice
         with pytest.raises(ValueError, match="does not cover"):
-            mt.to_remiz_seq()
+            mt.to_remiz_seq(voice_from="song")
 
 
 class TestMultiTrackMergeWith:

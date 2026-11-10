@@ -278,6 +278,21 @@ class Bar:
         )
         return new_bar
 
+    def get_voice(self, order: str = "high_to_low") -> List[int]:
+        """
+        The bar-level track order: this bar's instrument IDs by the average pitch of their notes in this bar.
+
+        Args:
+            order: "high_to_low" -- ``self.voice``: highest average pitch first, drums last;
+                "low_to_high" -- drums first, then the pitched tracks from the lowest average pitch to the
+                highest; tracks of equal average pitch keep their ``self.voice`` order.
+        """
+        if order == "high_to_low":
+            return list(self.voice)
+        if order == "low_to_high":
+            return sorted(self.voice, key=lambda i: (i != 128, self.tracks[i].avg_pitch))
+        raise ValueError(f'order must be "high_to_low" or "low_to_high", got {order!r}')
+
     def _resolve_voice(self, voice: Optional[Iterable[int]]) -> List[int]:
         """
         Return the instrument IDs of this bar's tracks in the order given by
