@@ -690,6 +690,12 @@ class MultiTrack:
             ret.append("b-1")
         return ret
 
+    def to_chord_str(self) -> str:
+        """
+        The chord progression as a string. See :meth:`to_chord_seq`.
+        """
+        return " ".join(self.to_chord_seq())
+
     def to_midi(self, midi_fp: str, tempo: float = None, verbose: bool = True):
         """
         Create a MIDI file from the MultiTrack object using miditoolkit.
