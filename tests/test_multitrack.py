@@ -579,13 +579,28 @@ class TestMultiTrackVoice:
         assert MultiTrack(bars=[make_bar(0, {})]).voice == []
 
     def test_serialization_uses_song_voice_in_every_bar(self):
-        seq = self.make_crossing_mt().to_remiz_seq(voice_from="song")
+        seq = self.make_crossing_mt().to_remiz_seq(order="high_to_low", voice_from="song")
         assert self.insts(seq) == ["i-48", "i-0", "b-1", "i-48", "i-0", "b-1"]
 
-    def test_default_uses_bar_voice(self):
-        seq = self.make_crossing_mt().to_remiz_seq()
+    def test_high_to_low_uses_bar_voice(self):
+        seq = self.make_crossing_mt().to_remiz_seq(order="high_to_low")
         assert self.insts(seq) == ["i-0", "i-48", "b-1", "i-48", "i-0", "b-1"]
         assert seq == self.make_crossing_mt().to_remiz_seq(order="high_to_low", voice_from="bar")
+
+    def test_default_program_median_pitch(self):
+        # piano (0) has a lower median pitch than strings (48) whatever they play; drums first
+        mt = self.make_crossing_mt()
+        seq = mt.to_remiz_seq(include_drum=True)
+        assert self.insts(seq) == ["i-0", "i-48", "b-1", "i-128", "i-0", "i-48", "b-1"]
+        assert seq == mt.to_remiz_seq(include_drum=True, order="program_median_pitch", voice_from="song")
+        assert mt.get_voice("program_median_pitch") == [128, 0, 48]
+
+    def test_program_rank_table(self):
+        from remi_z.program_order import PROGRAM_MEDIAN_PITCH, PROGRAM_RANK
+        order = sorted(PROGRAM_RANK, key=PROGRAM_RANK.get)
+        assert order[0] == 128 and sorted(order) == list(range(129))
+        medians = [PROGRAM_MEDIAN_PITCH[p] for p in order[1:]]
+        assert medians == sorted(medians)
 
     def test_low_to_high_bar_and_song(self):
         mt = self.make_crossing_mt()
@@ -609,8 +624,13 @@ class TestMultiTrackVoice:
         seq = mt.to_remiz_seq(include_drum=True, order="low_to_high", with_voice_plan=True)
         assert self.insts(seq) == ["i-48", "i-0", "i-48", "i-0", "b-1",
                                    "i-128", "i-0", "i-48", "i-128", "i-0", "i-48", "b-1"]
+        assert seq[:3] == ["i-48", "i-0", "s-1"] and seq.count("s-1") == 2
         assert MultiTrack.from_remiz_seq(seq).to_remiz_seq(include_drum=True, order="low_to_high") == \
             mt.to_remiz_seq(include_drum=True, order="low_to_high")
+
+    def test_voice_plan_empty_bar(self):
+        mt = MultiTrack(bars=[make_bar(0, {})])
+        assert mt.to_remiz_seq(with_chord=True, with_voice_plan=True) == ["cr-N", "cq-N", "cr-N", "cq-N", "s-1", "b-1"]
 
     def test_voice_plan_needs_bar_voice(self):
         mt = self.make_crossing_mt()
@@ -625,7 +645,7 @@ class TestMultiTrackVoice:
         assert mt.to_remiz_str(voice=[0, 48, 128]) == " ".join(seq)
 
     def test_include_drum(self):
-        seq = self.make_crossing_mt().to_remiz_seq(include_drum=True, voice_from="song")
+        seq = self.make_crossing_mt().to_remiz_seq(include_drum=True, order="high_to_low", voice_from="song")
         assert self.insts(seq) == ["i-48", "i-0", "b-1", "i-48", "i-0", "i-128", "b-1"]
 
     def test_roundtrip_stable(self):
@@ -657,7 +677,7 @@ class TestMultiTrackVoice:
         mt = self.make_crossing_mt()
         mt.change_instrument(old_inst_id=48, new_inst_id=40)
         assert mt.voice == [40, 0, 128]
-        assert self.insts(mt.to_remiz_seq(voice_from="song")) == ["i-40", "i-0", "b-1", "i-40", "i-0", "b-1"]
+        assert self.insts(mt.to_remiz_seq(order="high_to_low", voice_from="song")) == ["i-40", "i-0", "b-1", "i-40", "i-0", "b-1"]
 
     def test_change_instrument_merges(self):
         mt = self.make_crossing_mt()

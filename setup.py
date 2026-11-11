@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 import os
 
 
-version = '0.7.5'
+version = '0.8.0'
 
 readme_path = 'Readme.md'
 long_description = open(readme_path, encoding='utf-8').read() if os.path.exists(readme_path) else ""
@@ -31,6 +31,7 @@ setup(
     # `remi_z` import as unresolved while the code ran fine.
     package_dir={'': '.'},
     packages=find_packages(),  # 自动查找所有包含 `__init__.py` 的包
+    package_data={'remi_z': ['program_median_pitch.tsv']},
     install_requires=[  # 项目的依赖项
         'miditoolkit>=1.0.1',
         'music21>=8.3.0',

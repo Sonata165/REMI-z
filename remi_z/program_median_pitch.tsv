@@ -1,0 +1,129 @@
+program	name	median_pitch	n_bars	source
+33	Electric Bass (finger)	35.43	72434	program
+34	Electric Bass (pick)	36.00	8343	program
+37	Slap Bass 2	36.00	2823	program
+39	Synth Bass 2	36.00	9038	program
+36	Slap Bass 1	36.17	3154	program
+35	Fretless Bass	36.50	50924	program
+32	Acoustic Bass	36.88	3635	program
+38	Synth Bass 1	39.00	7686	program
+47	Timpani	43.00	706	program
+43	Contrabass	46.00	538	program
+67	Baritone Sax	46.00	1635	program
+117	Melodic Tom	53.78	287	program
+30	Distortion Guitar	54.75	16210	program
+28	Electric Guitar (muted)	56.00	25274	program
+42	Cello	57.00	1142	program
+29	Overdriven Guitar	57.67	20622	program
+31	Guitar Harmonics	58.00	799	program
+112	Tinkle Bell	58.00	68	family
+113	Agogo	58.00	36	family
+114	Steel Drums	58.00	171	family
+116	Taiko Drum	58.00	67	family
+118	Synth Drum	58.00	1163	program
+7	Clavinet	58.12	6079	program
+25	Acoustic Guitar (steel)	58.85	58137	program
+57	Trombone	60.00	3669	program
+119	Reverse Cymbal	60.00	684	program
+120	Guitar Fret Noise	60.00	1172	program
+121	Breath Noise	60.00	166	family
+122	Seashore	60.00	164	family
+123	Bird Tweet	60.00	23	family
+124	Telephone Ring	60.00	106	family
+125	Helicopter	60.00	58	family
+126	Applause	60.00	82	family
+127	Gunshot	60.00	101	family
+84	Lead 5 (charang)	60.33	1024	program
+1	Bright Acoustic Piano	60.43	41787	program
+89	Pad 2 (warm)	60.67	6715	program
+58	Tuba	61.14	673	program
+6	Harpsichord	61.25	5462	program
+51	Synth Strings 2	61.25	4075	program
+24	Acoustic Guitar (nylon)	61.35	16003	program
+0	Acoustic Grand Piano	61.43	26281	program
+5	Electric Piano 2	61.67	28801	program
+27	Electric Guitar (clean)	61.67	35768	program
+63	Synth Brass 2	62.00	1755	program
+104	Sitar	62.25	435	program
+20	Reed Organ	62.50	767	program
+50	Synth Strings 1	62.50	13309	program
+26	Electric Guitar (jazz)	62.80	21062	program
+95	Pad 8 (sweep)	63.00	1070	program
+4	Electric Piano 1	63.33	30305	program
+60	French Horn	63.33	2900	program
+99	FX 4 (atmosphere)	63.33	1689	program
+90	Pad 3 (polysynth)	63.50	5296	program
+3	Honky-tonk Piano	63.67	5667	program
+69	English Horn	63.67	299	program
+66	Tenor Sax	63.75	6084	program
+105	Banjo	63.78	581	program
+49	String Ensemble 2	64.00	19048	program
+115	Woodblock	64.00	361	program
+2	Electric Grand Piano	64.12	9461	program
+83	Lead 4 chiff	64.29	674	program
+103	FX 8 (sci-fi)	64.67	323	program
+70	Bassoon	64.75	357	program
+52	Choir Aahs	65.00	16017	program
+65	Alto Sax	65.00	10768	program
+108	Kalimba	65.00	923	program
+19	Church Organ	65.20	227	program
+53	Voice Oohs	65.33	11177	program
+94	Pad 7 (halo)	65.50	2752	program
+101	FX 6 (goblins)	65.50	204	program
+23	Tango Accordion	65.63	504	program
+81	Lead 2 (sawtooth)	65.68	4150	program
+44	Tremolo Strings	65.83	881	program
+41	Viola	66.00	609	program
+106	Shamisen	66.00	177	family
+109	Bagpipe	66.00	105	family
+111	Shanai	66.00	80	family
+15	Dulcimer	66.07	251	program
+46	Orchestral Harp	66.50	1279	program
+54	Synth Choir	66.80	5752	program
+21	Accordion	67.00	1491	program
+48	String Ensemble 1	67.00	35184	program
+91	Pad 4 (choir)	67.50	2862	program
+71	Clarinet	67.80	4045	program
+12	Marimba	68.00	1690	program
+16	Drawbar Organ	68.00	3361	program
+55	Orchestra Hit	68.00	343	program
+92	Pad 5 (bowed)	68.00	591	program
+110	Fiddle	68.00	835	program
+62	Synth Brass 1	68.43	4479	program
+85	Lead 6 (voice)	68.50	1124	program
+87	Lead 8 (bass + lead)	68.75	3436	program
+59	Muted Trumpet	68.78	774	program
+40	Violin	69.00	2474	program
+45	Pizzicato Strings	69.00	1761	program
+86	Lead 7 (fifths)	69.00	10	family
+100	FX 5 (brightness)	69.00	2022	program
+61	Brass Section	69.20	9107	program
+64	Soprano Sax	69.57	1530	program
+80	Lead 1 (square)	69.67	1763	program
+97	FX 2 (soundtrack)	70.00	93	family
+102	FX 7 (echoes)	70.00	708	program
+107	Koto	70.17	377	program
+56	Trumpet	70.18	3780	program
+73	Flute	70.71	10859	program
+11	Vibraphone	70.80	7253	program
+68	Oboe	71.00	3165	program
+88	Pad 1 (new age)	71.00	6277	program
+22	Harmonica	71.13	4554	program
+76	Blown bottle	71.33	508	program
+82	Lead 3 (calliope)	71.33	6998	program
+96	FX 1 (rain)	71.42	528	program
+74	Recorder	71.62	1580	program
+14	Tubular Bells	72.00	678	program
+72	Piccolo	72.00	1175	program
+75	Pan Flute	73.00	6443	program
+17	Percussive Organ	73.59	4774	program
+93	Pad 6 (metallic)	74.00	557	program
+79	Ocarina	74.50	976	program
+77	Shakuhachi	76.00	917	program
+18	Rock Organ	76.27	11180	program
+78	Whistle	79.00	609	program
+8	Celesta	79.17	539	program
+13	Xylophone	83.33	624	program
+9	Glockenspiel	87.80	1305	program
+10	Music Box	88.00	999	program
+98	FX 3 (crystal)	91.00	869	program

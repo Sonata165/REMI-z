@@ -7,6 +7,7 @@ from .track import Track
 from .midi_encoding import convert_tempo_to_token
 from .time_signature_utils import TimeSignatureUtil
 from .chord import NO_CHORD_TOKENS, detect_chord_from_pitch_list, detect_chord_from_note_seq
+from .program_order import PROGRAM_RANK
 
 
 def deduplicate_notes(notes: List[Note]) -> List[Note]:
@@ -280,18 +281,23 @@ class Bar:
 
     def get_voice(self, order: str = "high_to_low") -> List[int]:
         """
-        The bar-level track order: this bar's instrument IDs by the average pitch of their notes in this bar.
+        The bar-level track order: this bar's instrument IDs by the average pitch of their notes in this bar, or
+        by program.
 
         Args:
             order: "high_to_low" -- ``self.voice``: highest average pitch first, drums last;
                 "low_to_high" -- drums first, then the pitched tracks from the lowest average pitch to the
-                highest; tracks of equal average pitch keep their ``self.voice`` order.
+                highest; tracks of equal average pitch keep their ``self.voice`` order;
+                "program_median_pitch" -- drums first, then by the program's median pitch over a corpus, low to
+                high (remi_z/program_order.py; independent of the notes).
         """
         if order == "high_to_low":
             return list(self.voice)
         if order == "low_to_high":
             return sorted(self.voice, key=lambda i: (i != 128, self.tracks[i].avg_pitch))
-        raise ValueError(f'order must be "high_to_low" or "low_to_high", got {order!r}')
+        if order == "program_median_pitch":
+            return sorted(self.voice, key=PROGRAM_RANK.__getitem__)
+        raise ValueError(f'order must be "high_to_low", "low_to_high" or "program_median_pitch", got {order!r}')
 
     def _resolve_voice(self, voice: Optional[Iterable[int]]) -> List[int]:
         """
@@ -409,8 +415,9 @@ class Bar:
             (default ``False``). Parsing ignores these tokens.
         with_voice_plan : bool, optional
             After the chord tokens, add the instrument tokens of the tracks that
-            follow, in the same order, e.g. ``i-128 i-33 i-0`` (default ``False``).
-            Parsing ignores them (they are followed by no notes).
+            follow, in the same order, then ``s-1`` (plan end, also after an empty
+            plan), e.g. ``i-128 i-33 i-0 s-1`` (default ``False``). Parsing ignores
+            them (the plan's i- tokens are followed by no notes).
 
         Returns
         -------
@@ -423,6 +430,7 @@ class Bar:
         insts = [i for i in self._resolve_voice(voice) if include_drum or not self.tracks[i].is_drum]
         if with_voice_plan:
             bar_seq.extend(f"i-{inst_id}" for inst_id in insts)
+            bar_seq.append("s-1")
         for inst_id in insts:
             bar_seq.extend(self.tracks[inst_id].to_remiz_seq(with_velocity=with_velocity))
         bar_seq.append("b-1")

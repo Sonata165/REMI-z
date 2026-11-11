@@ -64,11 +64,13 @@ mt = MultiTrack.from_midi("your_song.mid")
 remiz_str = mt.to_remiz_str(with_ts=True, with_tempo=True, with_velocity=True)
 ```
 
-Track order: `order="high_to_low"` (the default; highest average pitch first, drums last) or `order="low_to_high"`
-(drums first, then lowest average pitch to highest). With `voice_from="bar"` (the default) each bar is ordered by
-the average pitches of its own tracks; with `voice_from="song"` every bar uses one song-level order, from each
-instrument's notes over the whole piece. Or pass `voice=[...]` (instrument IDs, used for every bar) alone, without
-`order` or `voice_from`, for any other order.
+Track order: `order="program_median_pitch"` (the default; drums first, then each program by its median pitch over
+Slakh2100, low to high, from `remi_z/program_median_pitch.tsv`, so an instrument always has the same place whatever
+it plays), `order="high_to_low"` (highest average pitch first, drums last) or `order="low_to_high"` (drums first,
+then lowest average pitch to highest). For the two pitch orders, `voice_from="bar"` (the default) orders each bar by
+the average pitches of its own tracks and `voice_from="song"` uses one song-level order, from each instrument's notes
+over the whole piece. Or pass `voice=[...]` (instrument IDs, used for every bar) alone, without `order` or
+`voice_from`, for any other order.
 
 **2. REMI‑z tokens → MIDI**
 

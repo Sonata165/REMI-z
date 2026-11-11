@@ -17,6 +17,7 @@ from .midi_encoding import (
 )
 from .time_signature_utils import TimeSignatureUtil
 from .keys_normalization import detect_key
+from .program_order import PROGRAM_RANK
 
 
 class MultiTrack:
@@ -107,14 +108,18 @@ class MultiTrack:
         Args:
             order: "high_to_low" -- ``self.voice``: highest average pitch first, drums last;
                 "low_to_high" -- drums first, then the pitched tracks from the lowest average
-                pitch to the highest; tracks of equal average pitch keep their ``self.voice`` order.
+                pitch to the highest; tracks of equal average pitch keep their ``self.voice`` order;
+                "program_median_pitch" -- drums first, then by the program's median pitch over a corpus,
+                low to high (remi_z/program_order.py; independent of the notes).
         """
         if order == "high_to_low":
             return list(self.voice)
         if order == "low_to_high":
             avg = self._avg_pitches()
             return sorted(self.voice, key=lambda inst_id: (inst_id != 128, avg.get(inst_id, 0)))
-        raise ValueError(f'order must be "high_to_low" or "low_to_high", got {order!r}')
+        if order == "program_median_pitch":
+            return sorted(self.voice, key=PROGRAM_RANK.__getitem__)
+        raise ValueError(f'order must be "high_to_low", "low_to_high" or "program_median_pitch", got {order!r}')
 
     def __len__(self):
         return len(self.bars)
@@ -633,15 +638,17 @@ class MultiTrack:
             include_drum: Include drum tracks (default False).
             voice: Track order as a list of instrument IDs, used for every bar. It must list every
                 instrument of the piece. Give it alone, without ``order`` or ``voice_from``.
-            order: Track order: "high_to_low" (highest average pitch first, drums last; the default)
-                or "low_to_high" (drums first, then lowest average pitch to highest).
-            voice_from: Where the average pitches of ``order`` come from: "bar" (the default; each bar
+            order: Track order: "program_median_pitch" (the default; drums first, then by each program's median
+                pitch over a corpus, low to high: remi_z/program_order.py), "high_to_low" (highest average pitch
+                first, drums last) or "low_to_high" (drums first, then lowest average pitch to highest).
+            voice_from: Where the average pitches of the pitch orders come from: "bar" (the default; each bar
                 ordered by its own tracks, :meth:`Bar.get_voice`) or "song" (one order for every bar, from
-                each instrument's notes over the whole piece, :meth:`get_voice`).
+                each instrument's notes over the whole piece, :meth:`get_voice`). No effect on
+                "program_median_pitch", which does not depend on the notes.
             with_chord: Add two chords (root and quality tokens) at the start of every bar, see
                 :meth:`Bar.to_remiz_seq`.
-            with_voice_plan: After the chord tokens, add the instrument tokens of the bar in its track order
-                (:meth:`Bar.to_remiz_seq`). Needs bar-level order: not with ``voice`` or ``voice_from="song"``.
+            with_voice_plan: After the chord tokens, add the instrument tokens of the bar in its track order, then
+                s-1 (:meth:`Bar.to_remiz_seq`). Needs bar-level order: not with ``voice`` or ``voice_from="song"``.
         """
         if with_voice_plan and (voice is not None or voice_from not in (None, "bar")):
             raise ValueError('with_voice_plan needs voice_from="bar" (no voice, no voice_from="song")')
@@ -649,7 +656,7 @@ class MultiTrack:
             if order is not None or voice_from is not None:
                 raise ValueError("give voice alone, without order or voice_from")
         else:
-            order = "high_to_low" if order is None else order
+            order = "program_median_pitch" if order is None else order
             voice_from = "bar" if voice_from is None else voice_from
             if voice_from not in ("bar", "song"):
                 raise ValueError(f'voice_from must be "bar" or "song", got {voice_from!r}')
