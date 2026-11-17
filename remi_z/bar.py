@@ -341,6 +341,7 @@ class Bar:
         voice: Optional[List[int]] = None,
         with_chord=False,
         with_voice_plan=False,
+        time_ordered=False,
     ):
         """
         Serialize the Bar to a whitespace-delimited REMI-z string.
@@ -361,6 +362,8 @@ class Bar:
             Prepend chord tokens; see :meth:`to_remiz_seq` (default ``False``).
         with_voice_plan : bool, optional
             Prepend the bar's instrument tokens; see :meth:`to_remiz_seq` (default ``False``).
+        time_ordered : bool, optional
+            Notes in time order across tracks; see :meth:`to_remiz_seq` (default ``False``).
 
         Returns
         -------
@@ -375,6 +378,7 @@ class Bar:
             voice=voice,
             with_chord=with_chord,
             with_voice_plan=with_voice_plan,
+            time_ordered=time_ordered,
         )
         return " ".join(remiz_seq)
 
@@ -387,12 +391,16 @@ class Bar:
         voice: Optional[List[int]] = None,
         with_chord=False,
         with_voice_plan=False,
+        time_ordered=False,
     ):
         """
         Serialize the Bar to a list of REMI-z tokens.
 
         Tokens are emitted per track in voice order, each track using the format
         ``i-X o-X p-X d-X [v-X] ...``, followed by a ``b-1`` bar-end token.
+        With ``time_ordered``, the bar's onsets come in time order instead, each
+        followed by the tracks with notes there, in voice order:
+        ``o-X i-X p-X d-X i-Y p-Y d-Y o-Z ...``.
 
         Parameters
         ----------
@@ -418,6 +426,11 @@ class Bar:
             follow, in the same order, then ``s-1`` (plan end, also after an empty
             plan), e.g. ``i-128 i-33 i-0 s-1`` (default ``False``). Parsing ignores
             them (the plan's i- tokens are followed by no notes).
+        time_ordered : bool, optional
+            Write the notes in time order across tracks (default ``False``): per
+            onset of the bar, ascending, one ``o-X`` token, then each track with a
+            note there, in voice order, as ``i-X`` and its notes at that onset
+            (``p-X d-X [v-X]``). Parses back to the same bar.
 
         Returns
         -------
@@ -431,8 +444,22 @@ class Bar:
         if with_voice_plan:
             bar_seq.extend(f"i-{inst_id}" for inst_id in insts)
             bar_seq.append("s-1")
-        for inst_id in insts:
-            bar_seq.extend(self.tracks[inst_id].to_remiz_seq(with_velocity=with_velocity))
+        if not time_ordered:
+            for inst_id in insts:
+                bar_seq.extend(self.tracks[inst_id].to_remiz_seq(with_velocity=with_velocity))
+        else:
+            at_onset = {}  # onset -> {inst_id: note tokens}, instruments in voice order
+            for inst_id in insts:
+                track = self.tracks[inst_id]
+                for note in track.notes:
+                    toks = at_onset.setdefault(note.onset, {}).setdefault(inst_id, [])
+                    toks += [f"p-{note.pitch + 128 if track.is_drum else note.pitch}", f"d-{note.duration}"]
+                    if with_velocity:
+                        toks.append(f"v-{note.velocity}")
+            for onset in sorted(at_onset):
+                bar_seq.append(f"o-{onset}")
+                for inst_id, toks in at_onset[onset].items():
+                    bar_seq += [f"i-{inst_id}", *toks]
         bar_seq.append("b-1")
 
         return bar_seq

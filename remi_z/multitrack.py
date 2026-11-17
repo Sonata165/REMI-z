@@ -627,6 +627,7 @@ class MultiTrack:
         voice_from: Optional[str] = None,
         with_chord=False,
         with_voice_plan=False,
+        time_ordered=False,
     ):
         """
         Convert the MultiTrack object to a REMI-z sequence of tokens.
@@ -649,6 +650,9 @@ class MultiTrack:
                 :meth:`Bar.to_remiz_seq`.
             with_voice_plan: After the chord tokens, add the instrument tokens of the bar in its track order, then
                 s-1 (:meth:`Bar.to_remiz_seq`). Needs bar-level order: not with ``voice`` or ``voice_from="song"``.
+            time_ordered: Write each bar's notes in time order across tracks: per onset, ascending, ``o-X`` then
+                each track with a note there, in the track order above, as ``i-X p-X d-X ...``, e.g.
+                ``o-0 i-128 p-164 d-1 i-33 p-28 d-6 o-12 i-0 p-60 d-12 b-1`` (:meth:`Bar.to_remiz_seq`).
         """
         if with_voice_plan and (voice is not None or voice_from not in (None, "bar")):
             raise ValueError('with_voice_plan needs voice_from="bar" (no voice, no voice_from="song")')
@@ -672,6 +676,7 @@ class MultiTrack:
                 voice=voice if voice is not None else bar.get_voice(order),
                 with_chord=with_chord,
                 with_voice_plan=with_voice_plan,
+                time_ordered=time_ordered,
             )
             ret.extend(bar_seq)
         return ret
@@ -687,6 +692,7 @@ class MultiTrack:
         voice_from: Optional[str] = None,
         with_chord=False,
         with_voice_plan=False,
+        time_ordered=False,
     ):
         """
         Convert the MultiTrack object to a REMI-z string. See :meth:`to_remiz_seq`.
@@ -701,6 +707,7 @@ class MultiTrack:
             voice_from=voice_from,
             with_chord=with_chord,
             with_voice_plan=with_voice_plan,
+            time_ordered=time_ordered,
         )
         return " ".join(ret)
 

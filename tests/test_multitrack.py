@@ -760,6 +760,51 @@ class TestMultiTrackGetContentSeq:
 
 
 # ============================================================
+# to_remiz_seq(time_ordered=True)
+# ============================================================
+
+class TestMultiTrackTimeOrdered:
+
+    def _mt(self):
+        # piano (0), bass (33), drums (128); bar 2: piano only
+        return MultiTrack(bars=[
+            make_bar(0, {0: {0: [(64, 12, 64), (60, 12, 64)], 12: [(67, 6, 64)]},
+                         33: {0: [(40, 24, 64)], 24: [(43, 12, 64)]},
+                         128: {0: [(36, 1, 64)], 12: [(38, 1, 64)]}}),
+            make_bar(1, {0: {6: [(62, 6, 64)]}}),
+        ])
+
+    def test_tokens(self):
+        assert self._mt().to_remiz_seq(include_drum=True, time_ordered=True) == [
+            "o-0", "i-128", "p-164", "d-1", "i-33", "p-40", "d-24", "i-0", "p-64", "d-12", "p-60", "d-12",
+            "o-12", "i-128", "p-166", "d-1", "i-0", "p-67", "d-6",
+            "o-24", "i-33", "p-43", "d-12", "b-1",
+            "o-6", "i-0", "p-62", "d-6", "b-1",
+        ]
+
+    def test_instrument_order_is_default_order(self):
+        seq = self._mt().to_remiz_seq(include_drum=True, time_ordered=True)
+        default = [t for t in self._mt().to_remiz_seq(include_drum=True) if t.startswith("i-")]
+        first_onset = seq[1:seq.index("o-12")]
+        assert [t for t in first_onset if t.startswith("i-")] == default[:3]
+
+    def test_round_trip(self):
+        mt = self._mt()
+        back = MultiTrack.from_remiz_str(mt.to_remiz_str(include_drum=True, time_ordered=True))
+        assert back.to_remiz_seq(include_drum=True) == mt.to_remiz_seq(include_drum=True)
+
+    def test_without_drum_and_with_velocity(self):
+        seq = self._mt().to_remiz_seq(time_ordered=True, with_velocity=True)
+        assert "i-128" not in seq
+        assert seq[:5] == ["o-0", "i-33", "p-40", "d-24", "v-64"]
+
+    def test_same_notes_as_default(self):
+        mt = self._mt()
+        count = lambda seq: sorted(t for t in seq if t[:2] in ("p-", "d-"))
+        assert count(mt.to_remiz_seq(include_drum=True, time_ordered=True)) == count(mt.to_remiz_seq(include_drum=True))
+
+
+# ============================================================
 # get_melody_of_song
 # ============================================================
 
