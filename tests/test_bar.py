@@ -567,6 +567,26 @@ class TestBarGetContentSeq:
         seq = bar.get_content_seq(with_dur=False)
         assert not any(tok.startswith("d-") for tok in seq)
 
+    def test_drums_merged_first_at_onset(self):
+        bar = Bar(id=0, notes_of_insts={0: {0: [(60, 12, 64)], 12: [(64, 6, 64)]}, 128: {0: [(36, 3, 64)], 6: [(42, 3, 64)]}})
+        assert bar.get_content_seq(include_drum=True) == ["o-0", "p-164", "p-60", "d-12", "o-6", "p-170", "o-12", "p-64", "d-6", "b-1"]
+
+    def test_drum_duration_options(self):
+        bar = Bar(id=0, notes_of_insts={0: {0: [(60, 12, 64)]}, 128: {0: [(36, 3, 64)]}})
+        assert bar.get_content_seq(include_drum=True, with_drum_dur=True) == ["o-0", "p-164", "d-3", "p-60", "d-12", "b-1"]
+        assert bar.get_content_seq(include_drum=True, with_dur=False, with_drum_dur=True) == ["o-0", "p-164", "d-3", "p-60", "b-1"]
+
+    def test_drums_excluded_by_default_and_by_of_insts(self):
+        bar = Bar(id=0, notes_of_insts={0: {0: [(60, 12, 64)]}, 128: {0: [(36, 3, 64)]}})
+        assert bar.get_content_seq() == ["o-0", "p-60", "d-12", "b-1"]
+        assert bar.get_content_seq(include_drum=True, of_insts=[0]) == ["o-0", "p-60", "d-12", "b-1"]
+        assert bar.get_content_seq(include_drum=True, of_insts=[128]) == ["o-0", "p-164", "b-1"]
+
+    def test_drums_only_bar(self):
+        bar = Bar(id=0, notes_of_insts={128: {0: [(36, 3, 64)]}})
+        assert bar.get_content_seq(include_drum=True) == ["o-0", "p-164", "b-1"]
+        assert bar.get_content_seq() == ["b-1"]
+
 
 # ============================================================
 # deduplicate_notes

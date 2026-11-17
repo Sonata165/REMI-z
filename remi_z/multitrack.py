@@ -1002,18 +1002,25 @@ class MultiTrack:
         return all_notes
 
     def get_content_seq(
-        self, include_drum=False, of_insts=None, with_dur=True, return_str=False
+        self, include_drum=False, of_insts=None, with_dur=True, return_str=False, with_drum_dur=False
     ):
         """
-        Convert the MultiTrack object to a content sequence.
-        Including information about all notes being played
-        Without instrument information.
+        Convert the MultiTrack object to a content sequence (flattened REMI-z): per bar, the notes of all
+        tracks in one onset-sorted stream without instrument tokens, drum hits merged in (first at each onset)
+        with include_drum. See :meth:`Bar.get_content_seq`.
+
+        Args:
+            include_drum: Whether to include the drum track (instrument 128).
+            of_insts: Instrument IDs to include; None means all.
+            with_dur: Whether to include a duration token after each pitched note.
+            return_str: Return a space-joined string instead of a token list.
+            with_drum_dur: Whether to include a duration token after each drum hit (only with include_drum).
         """
         content_seq = []
         for bar in self.bars:
             content_seq.extend(
                 bar.get_content_seq(
-                    include_drum=include_drum, of_insts=of_insts, with_dur=with_dur
+                    include_drum=include_drum, of_insts=of_insts, with_dur=with_dur, with_drum_dur=with_drum_dur
                 )
             )
 

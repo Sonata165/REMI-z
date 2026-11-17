@@ -604,23 +604,41 @@ class Bar:
         bar_seq.append("b-1")
         return bar_seq
 
-    def get_content_seq(self, include_drum=False, of_insts=None, with_dur=True):
+    def get_content_seq(self, include_drum=False, of_insts=None, with_dur=True, with_drum_dur=False):
         """
         Convert the Bar object to a content sequence.
         Including information about all notes being played
         Without instrument information.
 
-        Args:
-            include_drum: Whether to include drum tracks
-            of_insts: A list of instrument IDs to extract the content sequence. None means all instruments.
-            with_dur: Whether to include duration information in the content sequence.
-        """
-        assert (
-            include_drum is False
-        ), "include_drum in content sequence is not supported yet"
+        All notes go into one onset-sorted stream ``o-X p-X [d-X] ... b-1``: one ``o-`` token per onset, then the
+        notes there. With drums, drum hits (``p-`` = MIDI pitch + 128) share the onset tokens of the pitched
+        notes and come first at each onset, as drums come first in the default track order
+        (``order="program_median_pitch"``). The pitched notes of all tracks are merged into one valid NoteSeq
+        (see :meth:`get_all_notes`).
 
-        notes = self.get_all_notes(include_drum=include_drum, of_insts=of_insts)
-        return self._notes_to_content_seq(notes, with_dur)
+        Args:
+            include_drum: Whether to include the drum track (instrument 128).
+            of_insts: A list of instrument IDs to extract the content sequence. None means all instruments.
+            with_dur: Whether to include a duration token after each pitched note.
+            with_drum_dur: Whether to include a duration token after each drum hit (only with include_drum).
+        """
+        pitched = self.get_all_notes(include_drum=False, of_insts=of_insts)
+        if not include_drum or (of_insts is not None and 128 not in of_insts):
+            return self._notes_to_content_seq(pitched, with_dur)
+        drums = self.get_all_notes(include_drum=True, of_insts=[128])
+        at_onset = {}  # onset -> tokens of its notes, drums first
+        for notes, offset, dur in ((drums, 128, with_drum_dur), (pitched, 0, with_dur)):
+            for note in notes:
+                toks = at_onset.setdefault(note.onset, [])
+                toks.append(f"p-{note.pitch + offset}")
+                if dur:
+                    toks.append(f"d-{note.duration}")
+        bar_seq = []
+        for onset in sorted(at_onset):
+            bar_seq.append(f"o-{onset}")
+            bar_seq.extend(at_onset[onset])
+        bar_seq.append("b-1")
+        return bar_seq
 
     def get_drum_content_seq(self, with_dur=True):
         """
