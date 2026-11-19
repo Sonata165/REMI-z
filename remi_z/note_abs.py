@@ -330,16 +330,12 @@ class NoteStream:
         """
         Shift every note's pitch by ``semitones``, in place. Does nothing for a drum stream.
 
-        Raises ValueError, leaving the stream unchanged, if any shifted pitch would fall
-        outside the MIDI range [0, 127]. Returns ``self`` so calls can be chained.
+        Pitches that leave the MIDI range 0-127 are moved back into it by whole octaves
+        (+12 while below 0, -12 while above 127), as in ``MultiTrack.shift_pitch``.
+        Returns ``self`` so calls can be chained.
         """
         if self.is_drum or not self.notes or semitones == 0:
             return self
-        lo, hi = self.get_pitch_range()
-        if lo + semitones < 0 or hi + semitones > 127:
-            raise ValueError(
-                f"shift_pitch({semitones}) would move pitches [{lo}, {hi}] outside [0, 127]"
-            )
         for note in self.notes:
             note.pitch += semitones
             while note.pitch < 0:
@@ -474,24 +470,26 @@ class NoteStream:
         play_rate : float
             Playback rate. Default: 1.0.
         pitch_shift : int
-            Pitch shift in semitones. Default: 0. Ignored for a drum stream (drum pitches
-            select the drum sound), same as ``shift_pitch``.
+            Pitch shift in semitones. Default: 0. Applied via ``shift_pitch`` on a copy, so it
+            is ignored for a drum stream and out-of-range pitches are folded back by octaves.
+            ``self`` is not modified.
         """
+        import copy
+
         import pretty_midi
 
         program = program if program is not None else (0 if self.is_drum else self.inst_id)
-        if self.is_drum:
-            pitch_shift = 0
+        notes = copy.deepcopy(self).shift_pitch(pitch_shift).notes if pitch_shift else self.notes
 
         # resolution 500 ticks/beat = 1 ms at 120 BPM (note times are ms-rounded),
         # low enough that long recordings stay under pretty_midi's 10M-tick limit.
         midi = pretty_midi.PrettyMIDI(initial_tempo=tempo, resolution=500)
         instrument = pretty_midi.Instrument(program=program, is_drum=self.is_drum, name=self.name or "")
-        for note in self.notes:
+        for note in notes:
             instrument.notes.append(
                 pretty_midi.Note(
                     velocity=note.velocity,
-                    pitch=note.pitch + pitch_shift,
+                    pitch=note.pitch,
                     start=note.onset / play_rate,
                     end=note.offset / play_rate,
                 )
