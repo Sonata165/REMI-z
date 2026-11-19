@@ -107,9 +107,10 @@ class NoteStream:
     Support multi-channel MIDI. Notes from different channels can be merged into a single NoteStream, as long as they are from the same instrument.
     """
 
-    def __init__(self, note_list: List[NoteAbs], inst_id: int = 0):
+    def __init__(self, note_list: List[NoteAbs], inst_id: int = 0, name: str | None = None):
         self.inst_id = inst_id
         self.notes = note_list
+        self.name = name  # optional; written as the MIDI track name by to_midi
 
     @property
     def is_drum(self) -> bool:
@@ -466,22 +467,26 @@ class NoteStream:
         path : str
             Output file path.
         program : int
-            General MIDI program number [0, 127]. Default: 0 (Acoustic Grand Piano).
+            General MIDI program number [0, 127]. Default: ``inst_id`` (0 for a drum stream,
+            which is written as a drum instrument).
         tempo : float
             Tempo in BPM. Default: 120.0.
         play_rate : float
             Playback rate. Default: 1.0.
         pitch_shift : int
-            Pitch shift in semitones. Default: 0.
+            Pitch shift in semitones. Default: 0. Ignored for a drum stream (drum pitches
+            select the drum sound), same as ``shift_pitch``.
         """
         import pretty_midi
 
-        program = program if program is not None else self.inst_id
+        program = program if program is not None else (0 if self.is_drum else self.inst_id)
+        if self.is_drum:
+            pitch_shift = 0
 
         # resolution 500 ticks/beat = 1 ms at 120 BPM (note times are ms-rounded),
         # low enough that long recordings stay under pretty_midi's 10M-tick limit.
         midi = pretty_midi.PrettyMIDI(initial_tempo=tempo, resolution=500)
-        instrument = pretty_midi.Instrument(program=program)
+        instrument = pretty_midi.Instrument(program=program, is_drum=self.is_drum, name=self.name or "")
         for note in self.notes:
             instrument.notes.append(
                 pretty_midi.Note(
